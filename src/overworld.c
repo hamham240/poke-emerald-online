@@ -66,6 +66,7 @@
 #include "constants/songs.h"
 #include "constants/trainer_hill.h"
 #include "constants/weather.h"
+#include "multiplayer.h"
 
 struct CableClubPlayer
 {
@@ -1490,6 +1491,11 @@ static void OverworldBasic(void)
 {
     ScriptContext_RunScript();
     RunTasks();
+
+    WriteMultiplayerPacketToBuffer();
+    TrySpawnMultiplayerAvatar();
+    TryMoveMultiplayerSprite();
+
     AnimateSprites();
     CameraUpdate();
     UpdateCameraPanning();

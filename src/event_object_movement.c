@@ -30,6 +30,7 @@
 #include "constants/mauville_old_man.h"
 #include "constants/trainer_types.h"
 #include "constants/union_room.h"
+#include "multiplayer.h"
 
 // this file was known as evobjmv.c in Game Freak's original source
 
@@ -1184,6 +1185,7 @@ void ResetObjectEvents(void)
 {
     ClearLinkPlayerObjectEvents();
     ClearAllObjectEvents();
+    ResetMultiplayerAvatarIds();
     ClearPlayerAvatarInfo();
     CreateReflectionEffectSprites();
 }
@@ -1217,7 +1219,10 @@ u8 GetFirstInactiveObjectEventId(void)
 
 u8 GetObjectEventIdByLocalIdAndMap(u8 localId, u8 mapNum, u8 mapGroupId)
 {
-    if (localId < OBJ_EVENT_ID_PLAYER)
+    if (localId == (OBJ_EVENT_ID_PLAYER - 1)) {
+        return gMultiplayerAvatarObjId;
+    }
+    else if (localId < OBJ_EVENT_ID_PLAYER)
         return GetObjectEventIdByLocalIdAndMapInternal(localId, mapNum, mapGroupId);
 
     return GetObjectEventIdByLocalId(localId);
@@ -1367,6 +1372,9 @@ static bool8 GetAvailableObjectEventId(u16 localId, u8 mapNum, u8 mapGroup, u8 *
 static void RemoveObjectEvent(struct ObjectEvent *objectEvent)
 {
     objectEvent->active = FALSE;
+    if (&gObjectEvents[gMultiplayerAvatarObjId] == objectEvent) {
+        ResetMultiplayerAvatarIds();
+    }
     RemoveObjectEventInternal(objectEvent);
 }
 
@@ -1459,7 +1467,7 @@ static u8 TrySetupObjectEventSprite(const struct ObjectEventTemplate *objectEven
     return objectEventId;
 }
 
-static u8 TrySpawnObjectEventTemplate(const struct ObjectEventTemplate *objectEventTemplate, u8 mapNum, u8 mapGroup, s16 cameraX, s16 cameraY)
+u8 TrySpawnObjectEventTemplate(const struct ObjectEventTemplate *objectEventTemplate, u8 mapNum, u8 mapGroup, s16 cameraX, s16 cameraY)
 {
     u8 objectEventId;
     struct SpriteTemplate spriteTemplate;

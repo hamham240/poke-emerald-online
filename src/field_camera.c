@@ -11,6 +11,7 @@
 #include "rotating_gate.h"
 #include "sprite.h"
 #include "text.h"
+#include "multiplayer.h"
 
 EWRAM_DATA bool8 gUnusedBikeCameraAheadPanback = FALSE;
 
