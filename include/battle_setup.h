@@ -67,6 +67,9 @@ bool8 ShouldTryRematchBattle(void);
 bool8 IsTrainerReadyForRematch(void);
 void ShouldTryGetTrainerScript(void);
 u16 CountBattledRematchTeams(u16 trainerId);
+void SetBattledTrainersFlags(void);
+bool32 IsPlayerDefeated(u32 battleOutcome);
+void RegisterTrainerInMatchCall(void);
 
 void DoStandardWildBattle_Debug(void);
 void BattleSetup_StartTrainerBattle_Debug(void);

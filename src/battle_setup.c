@@ -82,9 +82,7 @@ static void CB2_GiveStarter(void);
 static void CB2_StartFirstBattle(void);
 static void CB2_EndFirstBattle(void);
 static void CB2_EndTrainerBattle(void);
-static bool32 IsPlayerDefeated(u32 battleOutcome);
 static u16 GetRematchTrainerId(u16 trainerId);
-static void RegisterTrainerInMatchCall(void);
 static void HandleRematchVarsOnBattleEnd(void);
 static const u8 *GetIntroSpeechOfApproachingTrainer(void);
 static const u8 *GetTrainerCantBattleSpeech(void);
@@ -959,7 +957,7 @@ static void CB2_GiveStarter(void)
 
     *GetVarPointer(VAR_STARTER_MON) = gSpecialVar_Result;
     starterMon = GetStarterPokemon(gSpecialVar_Result);
-    ScriptGiveMon(starterMon, 5, ITEM_NONE, 0, 0, 0);
+    ScriptGiveMon(starterMon, 99, ITEM_NONE, 0, 0, 0);
     ResetTasks();
     PlayBattleBGM();
     SetMainCallback2(CB2_StartFirstBattle);
@@ -1030,7 +1028,7 @@ static u16 GetTrainerBFlag(void)
     return TRAINER_FLAGS_START + gTrainerBattleOpponent_B;
 }
 
-static bool32 IsPlayerDefeated(u32 battleOutcome)
+bool32 IsPlayerDefeated(u32 battleOutcome)
 {
     switch (battleOutcome)
     {
@@ -1282,7 +1280,7 @@ bool8 GetTrainerFlag(void)
         return FlagGet(GetTrainerAFlag());
 }
 
-static void SetBattledTrainersFlags(void)
+void SetBattledTrainersFlags(void)
 {
     if (gTrainerBattleOpponent_B != 0)
         FlagSet(GetTrainerBFlag());
@@ -1804,7 +1802,7 @@ static u32 GetTrainerMatchCallFlag(u32 trainerId)
     return 0xFFFF;
 }
 
-static void RegisterTrainerInMatchCall(void)
+void RegisterTrainerInMatchCall(void)
 {
     if (FlagGet(FLAG_HAS_MATCH_CALL))
     {

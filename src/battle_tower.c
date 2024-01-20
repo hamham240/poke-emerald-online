@@ -37,6 +37,10 @@
 #include "constants/trainers.h"
 #include "constants/event_objects.h"
 #include "constants/moves.h"
+#include "battle_pyramid.h"
+#include "trainer_hill.h"
+#include "load_save.h"
+#include "multiplayer.h"
 
 extern const u8 MossdeepCity_SpaceCenter_2F_EventScript_MaxieTrainer[];
 extern const u8 MossdeepCity_SpaceCenter_2F_EventScript_TabithaTrainer[];
@@ -79,6 +83,8 @@ static u8 GetFrontierTrainerFixedIvs(u16 trainerId);
 static void FillPartnerParty(u16 trainerId);
 static void SetEReaderTrainerChecksum(struct BattleTowerEReaderTrainer *ereaderTrainer);
 static u8 SetTentPtrsGetLevel(void);
+static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId);
+
 
 const u16 gBattleFrontierHeldItems[] =
 {
@@ -1962,9 +1968,11 @@ static void GetOpponentIntroSpeech(void)
         BufferApprenticeChallengeText(trainerId - TRAINER_RECORD_MIXING_APPRENTICE);
 }
 
-static void HandleSpecialTrainerBattleEnd(void)
+void HandleSpecialTrainerBattleEnd(void)
 {
     s32 i;
+
+    bool8 avoidReturnToFieldCB = FALSE;
 
     RecordedBattle_SaveBattleOutcome();
     switch (gBattleScripting.specialTrainerBattleType)
@@ -2005,9 +2013,40 @@ static void HandleSpecialTrainerBattleEnd(void)
                 gSaveBlock1Ptr->playerParty[i] = gPlayerParty[i];
         }
         break;
+    case SPECIAL_BATTLE_ONLINE_DOUBLE:
+        //TODO: Currently, winning a battle just loads the player's party before the battle
+        //  This disables any progression from winning online double battles
+        EnableMonSelectCancel();
+        LoadPlayerParty();
+
+        avoidReturnToFieldCB = TRUE;
+        if (gTrainerBattleOpponent_A == TRAINER_SECRET_BASE)
+        {
+            SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+        }
+        else if (IsPlayerDefeated(gBattleOutcome) == TRUE)
+        {
+            if (InBattlePyramid() || InTrainerHillChallenge())
+                SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+            else
+                SetMainCallback2(CB2_WhiteOut);
+        }
+        else
+        {
+            SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+            if (!InBattlePyramid() && !InTrainerHillChallenge())
+            {
+                RegisterTrainerInMatchCall();
+                SetBattledTrainersFlags();
+            }
+        }
+        break;
     }
 
-    SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+    if (!avoidReturnToFieldCB)
+    {
+        SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+    }
 }
 
 static void Task_StartBattleAfterTransition(u8 taskId)
@@ -2175,6 +2214,69 @@ void DoSpecialTrainerBattle(void)
         if (gSpecialVar_0x8005 & MULTI_BATTLE_CHOOSE_MONS) // Skip mons restoring(done in the script)
             gBattleScripting.specialTrainerBattleType = 0xFF;
         break;
+    case SPECIAL_BATTLE_ONLINE_DOUBLE:
+        // Indicate what type of battle is about to occur
+        gBattleTypeFlags = BATTLE_TYPE_TRAINER | BATTLE_TYPE_DOUBLE | BATTLE_TYPE_MULTI | BATTLE_TYPE_INGAME_PARTNER;
+
+        // Nullify the possibility of a second opponent
+        gTrainerBattleOpponent_B = 0xFFFF;
+
+        // Set the Id of the partner in battle
+        gPartnerTrainerId = TRAINER_STEVEN_PARTNER;
+
+        CreateTask(Task_WaitForOnlineDoubleBattleConnection, 0);
+
+        break;
+    }
+}
+
+void DisableMonSelectCancel(void) {
+    gDisableMonSelectCancel = TRUE;
+}
+
+void EnableMonSelectCancel(void) {
+    gDisableMonSelectCancel = FALSE;
+}
+
+static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId) {
+
+    if (IsFieldMessageBoxHidden()) {
+        ShowFieldMessage(gText_AwaitingLinkup);
+    }
+
+    if (JOY_NEW(B_BUTTON)) {
+        HideFieldMessageBox();
+
+        gBattleOutcome = B_OUTCOME_DREW;
+
+        SetMainCallback2(HandleSpecialTrainerBattleEnd);
+
+        DestroyTask(taskId);
+    }
+
+    gIsWaitingOnOtherPlayer = TRUE;
+    WriteMultiplayerPacketToBuffer();
+
+    if (ReadConnectedByte() != 0 && GetPeerPacket()->trainerBattleOppA == gTrainerBattleOpponent_A) {
+        if (GetPeerPacket()->isWaitingForOtherPlayer == TRUE) {
+            gIsWaitingOnOtherPlayer = FALSE;
+
+            // Fill the partner's party
+            FillPartnerParty(TRAINER_STEVEN_PARTNER);
+
+            HideFieldMessageBox();
+
+            // Create a task to start the battle after battle intro transition
+            CreateTask(Task_StartBattleAfterTransition, 1);
+            
+            // Play some sound stuff
+            PlayMapChosenOrBattleBGM(0);
+
+            // Set and start the transition type for battle intro
+            BattleTransition_StartOnField(B_TRANSITION_BLACKHOLE_PULSATE);
+
+            DestroyTask(taskId);
+        }
     }
 }
 
@@ -3020,8 +3122,8 @@ static void FillPartnerParty(u16 trainerId)
                 j = Random32();
             } while (IsShinyOtIdPersonality(STEVEN_OTID, j) || sStevenMons[i].nature != GetNatureFromPersonality(j));
             CreateMon(&gPlayerParty[MULTI_PARTY_SIZE + i],
-                      sStevenMons[i].species,
-                      sStevenMons[i].level,
+                      SPECIES_MAGIKARP,
+                      1,
                       sStevenMons[i].fixedIV,
                       TRUE,
                       #ifdef BUGFIX

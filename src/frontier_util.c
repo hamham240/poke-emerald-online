@@ -55,7 +55,6 @@ static void SetFrontierData(void);
 static void SetSelectedPartyOrder(void);
 static void DoSoftReset_(void);
 static void SetFrontierTrainers(void);
-static void SaveSelectedParty(void);
 static void ShowFacilityResultsWindow(void);
 static void CheckPutFrontierTVShowOnAir(void);
 static void Script_GetFrontierBrainStatus(void);
@@ -850,7 +849,7 @@ static void SetFrontierTrainers(void)
     gFacilityTrainers = gBattleFrontierTrainers;
 }
 
-static void SaveSelectedParty(void)
+void SaveSelectedParty(void)
 {
     u8 i;
 

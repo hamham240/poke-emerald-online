@@ -116,6 +116,7 @@ void AgbMain()
     SetDefaultFontsPointer();
     InitHeap(gHeap, HEAP_SIZE);
     InitMultiplayerAvatarIds();
+    InitMultiplayerData();
 
     gSoftResetDisabled = FALSE;
 

@@ -248,6 +248,8 @@ gSpecials::
 	def_special CallBattlePalaceFunction
 	def_special CopyEReaderTrainerGreeting
 	def_special DoSpecialTrainerBattle
+	def_special DisableMonSelectCancel
+	def_special EnableMonSelectCancel
 	def_special CallBattleArenaFunction
 	def_special CallBattleFactoryFunction
 	def_special CallBattlePikeFunction

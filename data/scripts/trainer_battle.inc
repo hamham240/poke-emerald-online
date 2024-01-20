@@ -104,10 +104,43 @@ Movement_RevealTrainer:
 EventScript_ShowTrainerIntroMsg::
 	special ShowTrainerIntroSpeech
 	waitmessage
-	waitbuttonpress
+
+	@ Allow player to choose normal battle or online partner double battle
+	multichoice 0, 0, MULTI_MULTIPLAYER_BATTLE_CHOICE, TRUE
+	compare VAR_RESULT 0
+	goto_if_eq EventScript_DoOnlineDoubleBattle
+
 	special TryPrepareSecondApproachingTrainer
 	goto_if_eq VAR_RESULT, TRUE, EventScript_TrainerApproach
 	goto EventScript_DoTrainerBattle
+
+EventScript_DoOnlineDoubleBattle::
+	@ Save the player's party so that we can restore it after the battle
+	special SavePlayerParty
+
+	@ Make the player choose MAX_PARTY/2 pokemons for battle
+	special DisableMonSelectCancel
+	special ChooseHalfPartyForBattle
+	waitstate
+
+	@ Reduce their party to these selected mons
+	special ReducePlayerPartyToSelectedMons
+
+	@ TODO: figure out if this is necessary
+	frontier_set FRONTIER_DATA_SELECTED_MON_ORDER
+
+	@ Set special variable to indicate online double battle
+	setvar VAR_0x8004, SPECIAL_BATTLE_ONLINE_DOUBLE
+
+	@ Doesn't seem necessary but we'll keep it in
+	setvar VAR_0x8005, 0
+
+	@ Call DoSpecialTrainerBattle() in battle_tower.c
+	special DoSpecialTrainerBattle
+	waitstate
+
+	@ End the battle
+	goto EventScript_EndTrainerBattle
 
 EventScript_DoTrainerBattle::
 	dotrainerbattle
@@ -118,6 +151,7 @@ EventScript_DoTrainerBattle::
 	goto_if_eq VAR_RESULT, TRAINER_BATTLE_CONTINUE_SCRIPT_NO_MUSIC, EventScript_EndTrainerBattle
 	goto_if_eq VAR_RESULT, TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE, EventScript_EndTrainerBattle
 	goto_if_eq VAR_RESULT, TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE_NO_MUSIC, EventScript_EndTrainerBattle
+
 EventScript_EndTrainerBattle::
 	gotobeatenscript
 	releaseall

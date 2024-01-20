@@ -29,13 +29,32 @@
 #include "constants/field_effects.h"
 #include "constants/metatile_behaviors.h"
 #include "constants/trainer_types.h"
+#include "battle_setup.h"
+#include "pokemon.h"
+#include "species.h"
+#include "macro.h"
 
 u8 gMultiplayerAvatarObjId;
 u8 gMultiplayerAvatarSpriteId;
+bool8 gDisableMonSelectCancel;
+bool8 gIsWaitingOnOtherPlayer;
 
-static bool8 DummyMovementCallback(struct ObjectEvent *objectEvent, struct Sprite *sprite)
-{
-    return 0;
+enum { // Buffer Sizes
+    GENERAL_BUFFER_SIZE = 0x00F00000
+};
+
+enum { // Addresses
+    GENERAL_BUFFER_BEGIN_ADDRESS = 0x10000000,
+
+    GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS = 0x10000001, // Where the local client can place data
+    GENERAL_BUFFER_BEGIN_PEER_ADDRESS = 0x10000101, // Where the emulator will place the peer's data
+
+    GENERAL_BUFFER_END_ADDRESS = (GENERAL_BUFFER_BEGIN_ADDRESS + GENERAL_BUFFER_SIZE)
+};
+
+void InitMultiplayerData(void) {
+    gDisableMonSelectCancel = FALSE;
+    gIsWaitingOnOtherPlayer = FALSE;
 }
 
 void InitMultiplayerAvatarIds(void)
@@ -282,6 +301,24 @@ void WriteMultiplayerPacketToBuffer(void) {
         packet->x = playerObjEvent->currentCoords.x;
         packet->y = playerObjEvent->currentCoords.y;
         packet->movementActionId = playerObjEvent->movementActionId;
+        packet->trainerBattleOppA = gTrainerBattleOpponent_A;
+        packet->isWaitingForOtherPlayer = gIsWaitingOnOtherPlayer;
+
+        struct PokemonPacket* pokePackets = ((struct PokemonPacket*) (GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS + sizeof(MultiplayerPacket)));
+
+        for (int i = 0; i < MULTI_PARTY_SIZE; ++i) {
+            u32 currentSpecies = GetMonData(gPlayerParty[i], MON_DATA_SPECIES, NULL);
+
+            if (currentSpecies != SPECIES_NONE) {
+                pokePackets[i].species = currentSpecies;
+                pokePackets[i].level = GetMonData(gPlayerParty[i], MON_DATA_LEVEL, NULL);
+                pokePackets[i].fixedIv = GetMonData(gPlayerParty[i], MON_DATA_IVS, NULL);
+
+            }
+            else {
+                CpuFill32(0, &pokePackets[i], sizeof(Pokemonpacket));
+            }
+        }
     }
 }
 
@@ -289,4 +326,10 @@ struct MultiplayerPacket* GetPeerPacket(void) {
     if (ReadConnectedByte() != 0) {
         return ((struct MultiplayerPacket*) GENERAL_BUFFER_BEGIN_PEER_ADDRESS);
     }
+}
+
+struct Pokemon* getPeerParty(void) {
+}
+
+void WritePartyPacketToBuffer(void) {
 }

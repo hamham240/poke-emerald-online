@@ -3038,4 +3038,8 @@ extern const u8 gText_TellHimTheWords[];
 extern const u8 gText_ExpShareOn[];
 extern const u8 gText_ExpShareOff[];
 
+// Multiplayer 
+extern const u8 gText_MultiplayerSingleBattle[];
+extern const u8 gText_MultiplayerDoubleBattle[];
+
 #endif // GUARD_STRINGS_H

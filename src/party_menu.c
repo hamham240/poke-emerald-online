@@ -6,6 +6,7 @@
 #include "battle_gfx_sfx_util.h"
 #include "battle_interface.h"
 #include "battle_pike.h"
+#include "battle_tower.h"
 #include "battle_pyramid.h"
 #include "battle_pyramid_bag.h"
 #include "bg.h"
@@ -73,6 +74,7 @@
 #include "constants/party_menu.h"
 #include "constants/rgb.h"
 #include "constants/songs.h"
+#include "multiplayer.h"
 
 enum {
     MENU_SUMMARY,
@@ -1414,14 +1416,19 @@ static void HandleChooseMonCancel(u8 taskId, s8 *slotPtr)
         CancelParticipationPrompt(taskId);
         break;
     default:
-        PlaySE(SE_SELECT);
-        if (DisplayCancelChooseMonYesNo(taskId) != TRUE)
-        {
-            if (!MenuHelpers_IsLinkActive())
-                gSpecialVar_0x8004 = PARTY_SIZE + 1;
-            gPartyMenuUseExitCallback = FALSE;
-            *slotPtr = PARTY_SIZE + 1;
-            Task_ClosePartyMenu(taskId);
+        if (gDisableMonSelectCancel == FALSE) {
+            PlaySE(SE_SELECT);
+            if (DisplayCancelChooseMonYesNo(taskId) != TRUE)
+            {
+                if (!MenuHelpers_IsLinkActive())
+                    gSpecialVar_0x8004 = PARTY_SIZE + 1;
+                gPartyMenuUseExitCallback = FALSE;
+                *slotPtr = PARTY_SIZE + 1;
+                Task_ClosePartyMenu(taskId);
+            }
+        }
+        else {
+            PlaySE(SE_FAILURE);
         }
         break;
     }
@@ -1550,7 +1557,12 @@ static void UpdatePartySelectionSingleLayout(s8 *slotPtr, s8 movementDir)
     case MENU_DIR_UP:
         if (*slotPtr == 0)
         {
-            *slotPtr = PARTY_SIZE + 1;
+            if (gDisableMonSelectCancel == FALSE) {
+                *slotPtr = PARTY_SIZE + 1;
+            }
+            else {
+                *slotPtr = PARTY_SIZE;
+            }
         }
         else if (*slotPtr == PARTY_SIZE)
         {
@@ -1569,7 +1581,8 @@ static void UpdatePartySelectionSingleLayout(s8 *slotPtr, s8 movementDir)
         }
         break;
     case MENU_DIR_DOWN:
-        if (*slotPtr == PARTY_SIZE + 1)
+        if ((*slotPtr == PARTY_SIZE + 1 && gDisableMonSelectCancel == FALSE) ||
+            (*slotPtr == PARTY_SIZE && gDisableMonSelectCancel == TRUE))
         {
             *slotPtr = 0;
         }
@@ -6100,7 +6113,12 @@ static void TryGiveMailToSelectedMon(u8 taskId)
 void InitChooseHalfPartyForBattle(u8 unused)
 {
     ClearSelectedPartyOrder();
-    InitPartyMenu(PARTY_MENU_TYPE_CHOOSE_HALF, PARTY_LAYOUT_SINGLE, PARTY_ACTION_CHOOSE_MON, FALSE, PARTY_MSG_CHOOSE_MON, Task_HandleChooseMonInput, gMain.savedCallback);
+    if (gDisableMonSelectCancel == FALSE) {
+        InitPartyMenu(PARTY_MENU_TYPE_CHOOSE_HALF, PARTY_LAYOUT_SINGLE, PARTY_ACTION_CHOOSE_MON, FALSE, PARTY_MSG_CHOOSE_MON, Task_HandleChooseMonInput, gMain.savedCallback);
+    }
+    else {
+        InitPartyMenu(PARTY_MENU_TYPE_CHOOSE_HALF, PARTY_LAYOUT_SINGLE, PARTY_ACTION_CHOOSE_MON, FALSE, PARTY_MSG_CHOOSE_MON, Task_HandleChooseMonInput, HandleSpecialTrainerBattleEnd);
+    }
     gPartyMenu.task = Task_ValidateChosenHalfParty;
 }
 
