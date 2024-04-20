@@ -81,6 +81,7 @@ static void FillFactoryFrontierTrainerParty(u16 trainerId, u8 firstMonId);
 static void FillFactoryTentTrainerParty(u16 trainerId, u8 firstMonId);
 static u8 GetFrontierTrainerFixedIvs(u16 trainerId);
 static void FillPartnerParty(u16 trainerId);
+static void FillOnlinePartnerParty(void);
 static void SetEReaderTrainerChecksum(struct BattleTowerEReaderTrainer *ereaderTrainer);
 static u8 SetTentPtrsGetLevel(void);
 static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId);
@@ -2053,6 +2054,15 @@ static void Task_StartBattleAfterTransition(u8 taskId)
 {
     if (IsBattleTransitionDone() == TRUE)
     {
+        // TODO
+        // This flag is currently used to signal that one player is waiting on another for a battle.
+        // The flag is flipped after the battle transition animation is finished.
+        // This means that the there is a window for both players to acknowledge that they are ready to
+        // proceed only during this battle transition animation. This *could* be problematic in the
+        // future, so we may want to move this to when both players are situated in the battle
+        // (wherever that is).
+        gIsWaitingOnOtherPlayer = FALSE;
+
         gMain.savedCallback = HandleSpecialTrainerBattleEnd;
         SetMainCallback2(CB2_InitBattle);
         DestroyTask(taskId);
@@ -2257,12 +2267,18 @@ static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId) {
     gIsWaitingOnOtherPlayer = TRUE;
     WriteMultiplayerPacketToBuffer();
 
+    // Write the party to the general buffer only once.
+    // It *should* be impossible for a party to be modified
+    // during this state.
+    if (gTasks[taskId].data[0] == 0) {
+        WritePartyPacketToBuffer();
+        gTasks[taskId].data[0] = 1;
+    }
+
     if (ReadConnectedByte() != 0 && GetPeerPacket()->trainerBattleOppA == gTrainerBattleOpponent_A) {
         if (GetPeerPacket()->isWaitingForOtherPlayer == TRUE) {
-            gIsWaitingOnOtherPlayer = FALSE;
-
             // Fill the partner's party
-            FillPartnerParty(TRAINER_STEVEN_PARTNER);
+            FillOnlinePartnerParty();
 
             HideFieldMessageBox();
 
@@ -2276,6 +2292,8 @@ static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId) {
             BattleTransition_StartOnField(B_TRANSITION_BLACKHOLE_PULSATE);
 
             DestroyTask(taskId);
+
+            EnableMonSelectCancel();
         }
     }
 }
@@ -3286,6 +3304,16 @@ static void FillPartnerParty(u16 trainerId)
             j = IsFrontierTrainerFemale(trainerId + TRAINER_RECORD_MIXING_APPRENTICE);
             SetMonData(&gPlayerParty[MULTI_PARTY_SIZE + i], MON_DATA_OT_GENDER, &j);
         }
+    }
+}
+
+static void FillOnlinePartnerParty()
+{
+    struct Pokemon* pokemons = getPeerParty();
+
+    for (int i = 0; i < MULTI_PARTY_SIZE; i++)
+    {
+        gPlayerParty[MULTI_PARTY_SIZE + i] = pokemons[i];
     }
 }
 

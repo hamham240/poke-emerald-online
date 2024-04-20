@@ -31,8 +31,8 @@
 #include "constants/trainer_types.h"
 #include "battle_setup.h"
 #include "pokemon.h"
-#include "species.h"
-#include "macro.h"
+//#include "species.h"
+//#include "macro.h"
 
 u8 gMultiplayerAvatarObjId;
 u8 gMultiplayerAvatarSpriteId;
@@ -47,7 +47,7 @@ enum { // Addresses
     GENERAL_BUFFER_BEGIN_ADDRESS = 0x10000000,
 
     GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS = 0x10000001, // Where the local client can place data
-    GENERAL_BUFFER_BEGIN_PEER_ADDRESS = 0x10000101, // Where the emulator will place the peer's data
+    GENERAL_BUFFER_BEGIN_PEER_ADDRESS = 0x10001001, // Where the emulator will place the peer's data
 
     GENERAL_BUFFER_END_ADDRESS = (GENERAL_BUFFER_BEGIN_ADDRESS + GENERAL_BUFFER_SIZE)
 };
@@ -84,7 +84,7 @@ void SpawnMultiplayerAvatar(struct MultiplayerPacket* multiplayerPacket) {
 
     // Create an object template, almost verbatim as how InitPlayerAvatar does it
     objTemplate.localId = OBJ_EVENT_ID_PLAYER - 1;
-    objTemplate.graphicsId = 89;
+    objTemplate.graphicsId = 0;
     objTemplate.kind = 0;
     objTemplate.x = multiplayerPacket->x;
     objTemplate.y = multiplayerPacket->y;
@@ -304,21 +304,6 @@ void WriteMultiplayerPacketToBuffer(void) {
         packet->trainerBattleOppA = gTrainerBattleOpponent_A;
         packet->isWaitingForOtherPlayer = gIsWaitingOnOtherPlayer;
 
-        struct PokemonPacket* pokePackets = ((struct PokemonPacket*) (GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS + sizeof(MultiplayerPacket)));
-
-        for (int i = 0; i < MULTI_PARTY_SIZE; ++i) {
-            u32 currentSpecies = GetMonData(gPlayerParty[i], MON_DATA_SPECIES, NULL);
-
-            if (currentSpecies != SPECIES_NONE) {
-                pokePackets[i].species = currentSpecies;
-                pokePackets[i].level = GetMonData(gPlayerParty[i], MON_DATA_LEVEL, NULL);
-                pokePackets[i].fixedIv = GetMonData(gPlayerParty[i], MON_DATA_IVS, NULL);
-
-            }
-            else {
-                CpuFill32(0, &pokePackets[i], sizeof(Pokemonpacket));
-            }
-        }
     }
 }
 
@@ -329,7 +314,24 @@ struct MultiplayerPacket* GetPeerPacket(void) {
 }
 
 struct Pokemon* getPeerParty(void) {
+    if (ReadConnectedByte() != 0) {
+        return ((struct Pokemon*) (GENERAL_BUFFER_BEGIN_PEER_ADDRESS + sizeof(struct MultiplayerPacket)));
+    }
 }
 
 void WritePartyPacketToBuffer(void) {
+    if (ReadConnectedByte() != 0) {
+        struct Pokemon* pokemonPackets = ((struct Pokemon*) (GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS + sizeof(struct MultiplayerPacket)));
+
+        for (int i = 0; i < MULTI_PARTY_SIZE; ++i) {
+            u32 currentSpecies = GetMonData(&gPlayerParty[i], MON_DATA_SPECIES, NULL);
+
+            if (currentSpecies != SPECIES_NONE) {
+                pokemonPackets[i] = gPlayerParty[i];
+            }
+            else {
+                CpuFill32(0, &pokemonPackets[i], sizeof(struct Pokemon));
+            }
+        }
+    }
 }
