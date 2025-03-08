@@ -3002,5 +3002,4 @@ u32 GetRfuRecvQueueLength(void)
 
 static void Task_Idle(u8 taskId)
 {
-
 }

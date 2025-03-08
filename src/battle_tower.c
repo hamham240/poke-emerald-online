@@ -2226,26 +2226,20 @@ void DoSpecialTrainerBattle(void)
         break;
     case SPECIAL_BATTLE_ONLINE_DOUBLE:
         // Indicate what type of battle is about to occur
-        gBattleTypeFlags = BATTLE_TYPE_TRAINER | BATTLE_TYPE_DOUBLE | BATTLE_TYPE_MULTI | BATTLE_TYPE_INGAME_PARTNER;
+        gBattleTypeFlags = BATTLE_TYPE_TRAINER | BATTLE_TYPE_DOUBLE | BATTLE_TYPE_MULTI | BATTLE_TYPE_INGAME_PARTNER | BATTLE_TYPE_LINK;
 
         // Nullify the possibility of a second opponent
         gTrainerBattleOpponent_B = 0xFFFF;
 
         // Set the Id of the partner in battle
-        gPartnerTrainerId = TRAINER_STEVEN_PARTNER;
+        // gPartnerTrainerId = TRAINER_STEVEN_PARTNER;
+        // gPartnerTrainerId = TRAINER_PLAYER;
+        gPartnerTrainerId = TRAINER_CUSTOM_PARTNER;
 
         CreateTask(Task_WaitForOnlineDoubleBattleConnection, 0);
 
         break;
     }
-}
-
-void DisableMonSelectCancel(void) {
-    gDisableMonSelectCancel = TRUE;
-}
-
-void EnableMonSelectCancel(void) {
-    gDisableMonSelectCancel = FALSE;
 }
 
 static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId) {

@@ -36,6 +36,7 @@
 #include "constants/songs.h"
 #include "constants/trainers.h"
 #include "constants/rgb.h"
+#include "multiplayer.h"
 
 static void PlayerBufferExecCompleted(u32 battler);
 static void PlayerHandleLoadMonSprite(u32 battler);
@@ -184,7 +185,15 @@ static void PlayerBufferExecCompleted(u32 battler)
 
 static void PlayerBufferRunCommand(u32 battler)
 {
-    if (gBattleControllerExecFlags & gBitTable[battler])
+    if (ReadConnectedByte()) {
+        if (getExecFlag(battler) == TASK_NOT_FINISHED) {
+            if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sPlayerBufferCommands))
+                sPlayerBufferCommands[gBattleResources->bufferA[battler][0]](battler);
+            else
+                PlayerBufferExecCompleted(battler);
+        }
+    }
+    else if (!ReadConnectedByte() && gBattleControllerExecFlags & gBitTable[battler])
     {
         if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sPlayerBufferCommands))
             sPlayerBufferCommands[gBattleResources->bufferA[battler][0]](battler);
@@ -1785,6 +1794,7 @@ static u32 PlayerGetTrainerBackPicId(void)
 // that use an animated back pic.
 static void PlayerHandleDrawTrainerPic(u32 battler)
 {
+    DebugPrintf("Calling PlayerHandleDrawTrainerPic() with battler=%u", battler);
     bool32 isFrontPic;
     s16 xPos, yPos;
     u32 trainerPicId, gender;
@@ -1815,16 +1825,40 @@ static void PlayerHandleDrawTrainerPic(u32 battler)
     }
 
     // Use front pic table for any tag battles unless your partner is Steven or a custom partner.
-    if (gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER && gPartnerTrainerId != TRAINER_STEVEN_PARTNER && gPartnerTrainerId < TRAINER_CUSTOM_PARTNER)
-    {
-        trainerPicId = PlayerGenderToFrontTrainerPicId(gSaveBlock2Ptr->playerGender);
-        isFrontPic = TRUE;
-    }
-    else // Use back pic in all the other usual circumstances.
-    {
+    if (!ReadConnectedByte()) {
+        if (gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER && gPartnerTrainerId != TRAINER_STEVEN_PARTNER && gPartnerTrainerId < TRAINER_CUSTOM_PARTNER)
+        {
+            trainerPicId = PlayerGenderToFrontTrainerPicId(gSaveBlock2Ptr->playerGender);
+            isFrontPic = TRUE;
+        }
+        else // Use back pic in all the other usual circumstances.
+        {
+            isFrontPic = FALSE;
+        }
+    } else {
+        trainerPicId = 0;
         isFrontPic = FALSE;
     }
 
+    if (gBattleTypeFlags & BATTLE_TYPE_MULTI && ReadConnectedByte()) {
+        u32 trainerPicFrontId;
+        // TODO: hardcoded to brendan, will have to change eventually
+        if ((GetBattlerPosition(battler) & BIT_FLANK) != 0) // right side player
+        {
+            xPos = 90;
+            trainerPicId = 0;
+            trainerPicFrontId = 71;
+            BtlController_HandleDrawTrainerPic(battler, trainerPicId, FALSE, xPos, (8 - gTrainerFrontPicCoords[trainerPicFrontId].size) * 4 + 80, -1);
+        }   
+        else // left side player
+        {
+            xPos = 32;
+            trainerPicId = 0;
+            trainerPicFrontId = 71;
+            BtlController_HandleDrawTrainerPic(battler, trainerPicId, FALSE, xPos, (8 - gTrainerFrontPicCoords[trainerPicFrontId].size) * 4 + 80, -1);
+        }
+        return;
+    }
     BtlController_HandleDrawTrainerPic(battler, trainerPicId, isFrontPic, xPos, yPos, -1);
 }
 

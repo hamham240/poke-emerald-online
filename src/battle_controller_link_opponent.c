@@ -28,6 +28,7 @@
 #include "constants/songs.h"
 #include "constants/trainers.h"
 #include "recorded_battle.h"
+#include "multiplayer.h"
 
 static void LinkOpponentHandleLoadMonSprite(u32 battler);
 static void LinkOpponentHandleSwitchInAnim(u32 battler);
@@ -117,7 +118,16 @@ void SetControllerToLinkOpponent(u32 battler)
 
 static void LinkOpponentBufferRunCommand(u32 battler)
 {
-    if (gBattleControllerExecFlags & gBitTable[battler])
+    // TODO: consider repercussions of this when readconnectedbyte() is true but both players are in different fights
+    if (ReadConnectedByte()) {
+        if (getExecFlag(battler) == TASK_NOT_FINISHED) {
+            if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sLinkOpponentBufferCommands))
+                sLinkOpponentBufferCommands[gBattleResources->bufferA[battler][0]](battler);
+            else
+                LinkOpponentBufferExecCompleted(battler);
+        }
+    }
+    else if (gBattleControllerExecFlags & gBitTable[battler])
     {
         if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sLinkOpponentBufferCommands))
             sLinkOpponentBufferCommands[gBattleResources->bufferA[battler][0]](battler);

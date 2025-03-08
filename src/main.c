@@ -181,8 +181,12 @@ void AgbMainLoop(void)
 
 static void UpdateLinkAndCallCallbacks(void)
 {
-    if (!HandleLinkConnection())
+    if (ReadConnectedByte()) {
         CallCallbacks();
+    }
+    else if (!HandleLinkConnection()) {
+        CallCallbacks();
+    }
 }
 
 static void InitMainCallbacks(void)

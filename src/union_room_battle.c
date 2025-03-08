@@ -160,6 +160,9 @@ void CB2_UnionRoomBattle(void)
                 gBlockSendBuffer[0] = ACTIVITY_ACCEPT | IN_UNION_ROOM;
             }
             SendBlock(0, gBlockSendBuffer, 0x20);
+            // DebugPrintf("Sending block...");
+            // for (int i = 0; i < 0x20; ++i)
+            //     DebugPrintf("gBlockSendBuffer[%u]=%u", i, gBlockSendBuffer[i]);
             gMain.state++;
         }
         break;

@@ -30,6 +30,7 @@
 #include "constants/songs.h"
 #include "constants/party_menu.h"
 #include "constants/trainers.h"
+#include "multiplayer.h"
 
 static void PlayerPartnerHandleLoadMonSprite(u32 battler);
 static void PlayerPartnerHandleSwitchInAnim(u32 battler);
@@ -295,6 +296,7 @@ static void PlayerPartnerHandleDrawTrainerPic(u32 battler)
     s16 xPos, yPos;
     u32 trainerPicId;
 
+    DebugPrintf("PlayerPartnerHandleDrawTrainerPic() called!");
     if (gPartnerTrainerId == TRAINER_STEVEN_PARTNER)
     {
         trainerPicId = TRAINER_BACK_PIC_STEVEN;

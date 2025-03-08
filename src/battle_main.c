@@ -64,6 +64,7 @@
 #include "constants/songs.h"
 #include "constants/trainers.h"
 #include "cable_club.h"
+#include "multiplayer.h"
 
 extern struct Evolution gEvolutionTable[][EVOS_PER_MON];
 
@@ -524,7 +525,7 @@ static void CB2_InitBattleInternal(void)
 
     gBattle_WIN0H = DISPLAY_WIDTH;
 
-    if (gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER && gPartnerTrainerId != TRAINER_STEVEN_PARTNER && gPartnerTrainerId < TRAINER_CUSTOM_PARTNER)
+    if (!ReadConnectedByte() && (gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER && gPartnerTrainerId != TRAINER_STEVEN_PARTNER && gPartnerTrainerId < TRAINER_CUSTOM_PARTNER))
     {
         gBattle_WIN0V = DISPLAY_HEIGHT - 1;
         gBattle_WIN1H = DISPLAY_WIDTH;
@@ -547,8 +548,9 @@ static void CB2_InitBattleInternal(void)
             gScanlineEffectRegBuffers[1][i] = 0xFF10;
         }
 
-        ScanlineEffect_SetParams(sIntroScanlineParams16Bit);
+        ScanlineEffect_SetParams(sIntroScanlineParams32Bit);
     }
+    DebugPrintf("gBattle_WIN0V=%u, gBattle_WIN0H=%u, gBattle_WIN1V=%u, gBattle_WIN1H=%u", gBattle_WIN0V, gBattle_WIN0H, gBattle_WIN1V, gBattle_WIN1H);
 
     ResetPaletteFade();
     gBattle_BG0_X = 0;
@@ -909,6 +911,11 @@ static void CB2_HandleStartBattle(void)
                     }
 
                     SendBlock(BitmaskAllOtherLinkPlayers(), &gBattleStruct->multiBuffer.linkBattlerHeader, sizeof(gBattleStruct->multiBuffer.linkBattlerHeader));
+                    // DebugPrintf("Sending linkBattleHeader: %u %u %u %u", gBattleStruct->multiBuffer.linkBattlerHeader.versionSignatureLo, gBattleStruct->multiBuffer.linkBattlerHeader.versionSignatureHi, gBattleStruct->multiBuffer.linkBattlerHeader.vsScreenHealthFlagsHi, gBattleStruct->multiBuffer.linkBattlerHeader.vsScreenHealthFlagsLo);
+                    // DebugPrintf("Link battle header size: %u", sizeof(gBattleStruct->multiBuffer.linkBattlerHeader));
+                    // for (int i = 0; i < sizeof(gBattleStruct->multiBuffer.linkBattlerHeader); ++i) {
+                    //     DebugPrintf("linkBattleHeader[%u] = %u", i, ((u8*)&gBattleStruct->multiBuffer.linkBattlerHeader)[i]);
+                    // }
                     gBattleCommunication[MULTIUSE_STATE] = 2;
                 }
                 if (gWirelessCommType)
@@ -947,6 +954,7 @@ static void CB2_HandleStartBattle(void)
         if (IsLinkTaskFinished())
         {
             // Send Pokémon 1-2
+            DebugPrintf("Send Pokémon 1-2");
             SendBlock(BitmaskAllOtherLinkPlayers(), gPlayerParty, sizeof(struct Pokemon) * 2);
             gBattleCommunication[MULTIUSE_STATE]++;
         }
@@ -955,6 +963,7 @@ static void CB2_HandleStartBattle(void)
         if ((GetBlockReceivedStatus() & 3) == 3)
         {
             // Recv Pokémon 1-2
+            DebugPrintf("Recv Pokémon 1-2");
             ResetBlockReceivedFlags();
             memcpy(gEnemyParty, gBlockRecvBuffer[enemyMultiplayerId], sizeof(struct Pokemon) * 2);
             gBattleCommunication[MULTIUSE_STATE]++;
@@ -964,6 +973,7 @@ static void CB2_HandleStartBattle(void)
         if (IsLinkTaskFinished())
         {
             // Send Pokémon 3-4
+            DebugPrintf("Send Pokémon 3-4");
             SendBlock(BitmaskAllOtherLinkPlayers(), &gPlayerParty[2], sizeof(struct Pokemon) * 2);
             gBattleCommunication[MULTIUSE_STATE]++;
         }
@@ -972,6 +982,7 @@ static void CB2_HandleStartBattle(void)
         if ((GetBlockReceivedStatus() & 3) == 3)
         {
             // Recv Pokémon 3-4
+            DebugPrintf("Recv Pokémon 3-4");
             ResetBlockReceivedFlags();
             memcpy(&gEnemyParty[2], gBlockRecvBuffer[enemyMultiplayerId], sizeof(struct Pokemon) * 2);
             gBattleCommunication[MULTIUSE_STATE]++;
@@ -981,6 +992,7 @@ static void CB2_HandleStartBattle(void)
         if (IsLinkTaskFinished())
         {
             // Send Pokémon 5-6
+            DebugPrintf("Send Pokémon 5-6");
             SendBlock(BitmaskAllOtherLinkPlayers(), &gPlayerParty[4], sizeof(struct Pokemon) * 2);
             gBattleCommunication[MULTIUSE_STATE]++;
         }
@@ -989,6 +1001,7 @@ static void CB2_HandleStartBattle(void)
         if ((GetBlockReceivedStatus() & 3) == 3)
         {
             // Recv Pokémon 5-6
+            DebugPrintf("Recv Pokémon 5-6");
             ResetBlockReceivedFlags();
             memcpy(&gEnemyParty[4], gBlockRecvBuffer[enemyMultiplayerId], sizeof(struct Pokemon) * 2);
 
@@ -1029,6 +1042,7 @@ static void CB2_HandleStartBattle(void)
         if (IsLinkTaskFinished())
         {
             SendBlock(BitmaskAllOtherLinkPlayers(), &gRecordedBattleRngSeed, sizeof(gRecordedBattleRngSeed));
+            DebugPrintf("Sending rng seed %u", gRecordedBattleRngSeed);
             gBattleCommunication[MULTIUSE_STATE]++;
         }
         break;
@@ -1049,6 +1063,14 @@ static void CB2_HandleStartBattle(void)
             gPreBattleCallback1 = gMain.callback1;
             gMain.callback1 = BattleMainCB1;
             SetMainCallback2(BattleMainCB2);
+            // DebugPrintf("Printing bufferA...");
+            // for (int i = 0; i < 8; ++i) {
+            //     DebugPrintf("gBlockRecvBuffer[0][%u] = %u",i, ((u8*)&gBlockRecvBuffer[0])[i]);
+            // }
+            // for (int i = 0; i < 8; ++i) {
+            //     DebugPrintf("gBlockRecvBuffer[1][%u] = %u",i, ((u8*)&gBlockRecvBuffer[1])[i]);
+            // }
+                
             if (gBattleTypeFlags & BATTLE_TYPE_LINK)
                 gBattleTypeFlags |= BATTLE_TYPE_LINK_IN_BATTLE;
         }
@@ -1127,6 +1149,14 @@ static void CB2_HandleStartMultiPartnerBattle(void)
 
                 if (gWirelessCommType)
                     CreateWirelessStatusIndicatorSprite(0, 0);
+            }
+            else if (ReadConnectedByte()) {
+                gLinkPlayers[0].id = 0;
+                gLinkPlayers[1].id = 2;
+                gLinkPlayers[2].id = 1;
+                gLinkPlayers[3].id = 3;
+                gBattleCommunication[MULTIUSE_STATE] = 13;
+                // CreateWirelessStatusIndicatorSprite(0, 0);
             }
         }
         else
@@ -1279,8 +1309,14 @@ static void CB2_HandleStartMultiPartnerBattle(void)
         RecordedBattle_SetTrainerInfo();
         gBattleCommunication[SPRITES_INIT_STATE1] = 0;
         gBattleCommunication[SPRITES_INIT_STATE2] = 0;
-        if (gBattleTypeFlags & BATTLE_TYPE_LINK)
-            gBattleCommunication[MULTIUSE_STATE] = 14;
+        if (gBattleTypeFlags & BATTLE_TYPE_LINK) {
+            if (ReadConnectedByte()) {
+                gBattleCommunication[MULTIUSE_STATE] = 16;
+            }
+            else {
+                gBattleCommunication[MULTIUSE_STATE] = 14;
+            }
+        }
         else
             gBattleCommunication[MULTIUSE_STATE] = 16;
         break;
@@ -1306,7 +1342,9 @@ static void CB2_HandleStartMultiPartnerBattle(void)
         // Finish, start battle
         if (BattleInitAllSprites(&gBattleCommunication[SPRITES_INIT_STATE1], &gBattleCommunication[SPRITES_INIT_STATE2]))
         {
-            TrySetLinkBattleTowerEnemyPartyLevel();
+            if (!ReadConnectedByte()) {
+                TrySetLinkBattleTowerEnemyPartyLevel();
+            }
             gPreBattleCallback1 = gMain.callback1;
             gMain.callback1 = BattleMainCB1;
             SetMainCallback2(BattleMainCB2);
@@ -3415,11 +3453,14 @@ static void DoBattleIntro(void)
     case 0: // Get Data of all battlers.
         battler = gBattleCommunication[1];
         BtlController_EmitGetMonData(battler, BUFFER_A, REQUEST_ALL_BATTLE, 0);
-        MarkBattlerForControllerExec(battler);
+        if (!ReadConnectedByte()) {
+            MarkBattlerForControllerExec(battler);
+        }
+            
         (*state)++;
         break;
     case 1: // Loop through all battlers.
-        if (!gBattleControllerExecFlags)
+        if ((!ReadConnectedByte() && !gBattleControllerExecFlags) || (ReadConnectedByte() && execFlagsAreCleared()))
         {
             if (++gBattleCommunication[1] == gBattlersCount)
                 (*state)++;
@@ -3428,18 +3469,23 @@ static void DoBattleIntro(void)
         }
         break;
     case 2: // Start graphical intro slide.
-        if (!gBattleControllerExecFlags)
+        DebugPrintf("Made it past the EmitGetMonDatas!");
+        if ((!ReadConnectedByte() && !gBattleControllerExecFlags) || (ReadConnectedByte() && execFlagsAreCleared()))
         {
             battler = GetBattlerAtPosition(0);
             BtlController_EmitIntroSlide(battler, BUFFER_A, gBattleTerrain);
-            MarkBattlerForControllerExec(battler);
+            if (ReadConnectedByte()) {
+                markExecFlag(battler, TASK_NOT_FINISHED);
+            }
+            else
+                MarkBattlerForControllerExec(battler);
             gBattleCommunication[0] = 0;
             gBattleCommunication[1] = 0;
             (*state)++;
         }
         break;
     case 3: // Wait for intro slide.
-        if (!gBattleControllerExecFlags)
+        if ((!ReadConnectedByte() && !gBattleControllerExecFlags) || (ReadConnectedByte() && execFlagsAreCleared()))
             (*state)++;
         break;
     case 4: // Copy battler data gotten in cases 0 and 1. Draw trainer/mon sprite.
@@ -3467,18 +3513,30 @@ static void DoBattleIntro(void)
             {
             case B_POSITION_PLAYER_LEFT: // player sprite
                 BtlController_EmitDrawTrainerPic(battler, BUFFER_A);
-                MarkBattlerForControllerExec(battler);
+                if (ReadConnectedByte()) {
+                    markExecFlag(battler, TASK_NOT_FINISHED);
+                }
+                else
+                    MarkBattlerForControllerExec(battler);
                 break;
             case B_POSITION_OPPONENT_LEFT:
                 if (gBattleTypeFlags & BATTLE_TYPE_TRAINER) // opponent 1 sprite
                 {
                     BtlController_EmitDrawTrainerPic(battler, BUFFER_A);
-                    MarkBattlerForControllerExec(battler);
+                    if (ReadConnectedByte()) {
+                        markExecFlag(battler, TASK_NOT_FINISHED);
+                    }
+                    else
+                        MarkBattlerForControllerExec(battler);
                 }
                 else // wild mon 1
                 {
                     BtlController_EmitLoadMonSprite(battler, BUFFER_A);
-                    MarkBattlerForControllerExec(battler);
+                    if (ReadConnectedByte()) {
+                        markExecFlag(battler, TASK_NOT_FINISHED);
+                    }
+                    else
+                        MarkBattlerForControllerExec(battler);
                     gBattleResults.lastOpponentSpecies = GetMonData(&gEnemyParty[gBattlerPartyIndexes[battler]], MON_DATA_SPECIES, NULL);
                 }
                 break;
@@ -3486,6 +3544,10 @@ static void DoBattleIntro(void)
                 if (gBattleTypeFlags & (BATTLE_TYPE_MULTI | BATTLE_TYPE_INGAME_PARTNER)) // partner sprite
                 {
                     BtlController_EmitDrawTrainerPic(battler, BUFFER_A);
+                if (ReadConnectedByte()) {
+                    markExecFlag(battler, TASK_NOT_FINISHED);
+                }
+                else
                     MarkBattlerForControllerExec(battler);
                 }
                 break;
@@ -3495,13 +3557,21 @@ static void DoBattleIntro(void)
                     if (gBattleTypeFlags & (BATTLE_TYPE_MULTI | BATTLE_TYPE_TWO_OPPONENTS) && !BATTLE_TWO_VS_ONE_OPPONENT) // opponent 2 if exists
                     {
                         BtlController_EmitDrawTrainerPic(battler, BUFFER_A);
+                    if (ReadConnectedByte()) {
+                        markExecFlag(battler, TASK_NOT_FINISHED);
+                    }
+                    else
                         MarkBattlerForControllerExec(battler);
                     }
                 }
                 else if (IsBattlerAlive(battler)) // wild mon 2 if alive
                 {
                     BtlController_EmitLoadMonSprite(battler, BUFFER_A);
-                    MarkBattlerForControllerExec(battler);
+                    if (ReadConnectedByte()) {
+                        markExecFlag(battler, TASK_NOT_FINISHED);
+                    }
+                    else
+                        MarkBattlerForControllerExec(battler);
                     gBattleResults.lastOpponentSpecies = GetMonData(&gEnemyParty[gBattlerPartyIndexes[battler]], MON_DATA_SPECIES, NULL);
                 }
                 break;
@@ -3525,7 +3595,8 @@ static void DoBattleIntro(void)
         }
         break;
     case 5: // draw party summary in trainer battles
-        if (!gBattleControllerExecFlags)
+        return; // TODO: REMOVE THIS, JUST PAUSING EXECUTION OF INTRO UNTIL PREVIOUS STEPS ARE FIXED
+        if ((!ReadConnectedByte() && !gBattleControllerExecFlags) || (ReadConnectedByte() && execFlagsAreCleared()))
         {
             struct HpAndStatus hpStatus[PARTY_SIZE];
 
@@ -3546,7 +3617,11 @@ static void DoBattleIntro(void)
 
             battler = GetBattlerAtPosition(B_POSITION_OPPONENT_LEFT);
             BtlController_EmitDrawPartyStatusSummary(battler, BUFFER_A, hpStatus, PARTY_SUMM_SKIP_DRAW_DELAY);
-            MarkBattlerForControllerExec(battler);
+            if (ReadConnectedByte()) {
+                markExecFlag(battler, TASK_NOT_FINISHED);
+            }
+            else
+                MarkBattlerForControllerExec(battler);
 
             for (i = 0; i < PARTY_SIZE; i++)
             {
@@ -3565,17 +3640,21 @@ static void DoBattleIntro(void)
 
             battler = GetBattlerAtPosition(B_POSITION_PLAYER_LEFT);
             BtlController_EmitDrawPartyStatusSummary(battler, BUFFER_A, hpStatus, PARTY_SUMM_SKIP_DRAW_DELAY);
-            MarkBattlerForControllerExec(battler);
+            if (ReadConnectedByte()) {
+                markExecFlag(battler, TASK_NOT_FINISHED);
+            }
+            else
+                MarkBattlerForControllerExec(battler);
 
             (*state)++;
         }
         break;
     case 6: // wait for previous action to complete
-        if (!gBattleControllerExecFlags)
+        if ((!ReadConnectedByte() && !gBattleControllerExecFlags) || (ReadConnectedByte() && execFlagsAreCleared()))
             (*state)++;
         break;
     case 7: // print battle intro message
-        if (!IsBattlerMarkedForControllerExec(GetBattlerAtPosition(B_POSITION_PLAYER_LEFT)))
+        if (!IsBattlerMarkedForControllerExec(GetBattlerAtPosition(B_POSITION_PLAYER_LEFT)) || (ReadConnectedByte() && execFlagsAreCleared()))
         {
             PrepareStringBattle(STRINGID_INTROMSG, GetBattlerAtPosition(B_POSITION_PLAYER_LEFT));
             (*state)++;
@@ -3606,7 +3685,7 @@ static void DoBattleIntro(void)
         (*state)++;
         break;
     case 10: // wait for opponent sends out text
-        if (!gBattleControllerExecFlags)
+        if (!gBattleControllerExecFlags || (ReadConnectedByte() && execFlagsAreCleared()))
             (*state)++;
         break;
     case 11: // first opponent's mon send out animation
@@ -3640,7 +3719,7 @@ static void DoBattleIntro(void)
             (*state)++;
         break;
     case 14: // wait for opponent 2 send out
-        if (!gBattleControllerExecFlags)
+        if (!gBattleControllerExecFlags || (ReadConnectedByte() && execFlagsAreCleared()))
             (*state)++;
         break;
     case 15: // wait for wild battle message
@@ -3670,7 +3749,7 @@ static void DoBattleIntro(void)
         (*state)++;
         break;
     case 17: // wait for player send out message
-        if (!(gBattleTypeFlags & BATTLE_TYPE_LINK && gBattleControllerExecFlags))
+        if (!(gBattleTypeFlags & BATTLE_TYPE_LINK && gBattleControllerExecFlags) || (ReadConnectedByte() && execFlagsAreCleared()))
         {
             if (gBattleTypeFlags & BATTLE_TYPE_RECORDED_LINK && !(gBattleTypeFlags & BATTLE_TYPE_RECORDED_IS_MASTER))
                 battler = GetBattlerAtPosition(B_POSITION_OPPONENT_LEFT);
@@ -3705,7 +3784,7 @@ static void DoBattleIntro(void)
         (*state)++;
         break;
     case 20: // set dex and battle vars
-        if (!gBattleControllerExecFlags)
+        if (!gBattleControllerExecFlags || (ReadConnectedByte() && execFlagsAreCleared()))
         {
             for (battler = 0; battler < gBattlersCount; battler++)
             {
@@ -3735,7 +3814,7 @@ static void TryDoEventsBeforeFirstTurn(void)
 {
     s32 i, j;
 
-    if (gBattleControllerExecFlags)
+    if (gBattleControllerExecFlags || (ReadConnectedByte() && !execFlagsAreCleared()))
         return;
 
     // Set invalid mons as absent(for example when starting a double battle with only one pokemon).
@@ -3872,7 +3951,7 @@ static void HandleEndTurn_ContinueBattle(void)
 {
     s32 i;
 
-    if (gBattleControllerExecFlags == 0)
+    if (gBattleControllerExecFlags == 0 || (ReadConnectedByte() && execFlagsAreCleared()))
     {
         gBattleMainFunc = BattleTurnPassed;
         for (i = 0; i < BATTLE_COMMUNICATION_ENTRIES_COUNT; i++)

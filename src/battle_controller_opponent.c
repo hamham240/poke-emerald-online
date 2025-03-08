@@ -38,6 +38,7 @@
 #include "constants/songs.h"
 #include "constants/trainers.h"
 #include "trainer_hill.h"
+#include "multiplayer.h"
 
 static void OpponentHandleLoadMonSprite(u32 battler);
 static void OpponentHandleSwitchInAnim(u32 battler);
@@ -131,7 +132,15 @@ void SetControllerToOpponent(u32 battler)
 
 static void OpponentBufferRunCommand(u32 battler)
 {
-    if (gBattleControllerExecFlags & gBitTable[battler])
+    if (ReadConnectedByte()) {
+        if (getExecFlag(battler) == TASK_NOT_FINISHED) {
+            if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sOpponentBufferCommands))
+                sOpponentBufferCommands[gBattleResources->bufferA[battler][0]](battler);
+            else
+                OpponentBufferExecCompleted(battler);
+        }
+    }
+    else if (!ReadConnectedByte() && gBattleControllerExecFlags & gBitTable[battler])
     {
         if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sOpponentBufferCommands))
             sOpponentBufferCommands[gBattleResources->bufferA[battler][0]](battler);

@@ -31,6 +31,7 @@
 #include "constants/trainer_types.h"
 #include "battle_setup.h"
 #include "pokemon.h"
+#include "battle.h"
 //#include "species.h"
 //#include "macro.h"
 
@@ -38,6 +39,11 @@ u8 gMultiplayerAvatarObjId;
 u8 gMultiplayerAvatarSpriteId;
 bool8 gDisableMonSelectCancel;
 bool8 gIsWaitingOnOtherPlayer;
+u32 gMultiplayerBattle;
+u32 gPacketIdCounter;
+u32 gOldPacketId;
+u32 gHasPeerFinishedTask;
+u32 gMultiplayerExecFlags[4];
 
 enum { // Buffer Sizes
     GENERAL_BUFFER_SIZE = 0x00F00000
@@ -55,6 +61,11 @@ enum { // Addresses
 void InitMultiplayerData(void) {
     gDisableMonSelectCancel = FALSE;
     gIsWaitingOnOtherPlayer = FALSE;
+    gMultiplayerBattle = 0;
+    gPacketIdCounter = 1;
+    gOldPacketId = 0;
+    gHasPeerFinishedTask = 0;
+    memset(gMultiplayerExecFlags, 0, sizeof(u32) * 4);
 }
 
 void InitMultiplayerAvatarIds(void)
@@ -334,4 +345,135 @@ void WritePartyPacketToBuffer(void) {
             }
         }
     }
+}
+
+void DisableMonSelectCancel(void) {
+    gDisableMonSelectCancel = TRUE;
+}
+
+void EnableMonSelectCancel(void) {
+    gDisableMonSelectCancel = FALSE;
+}
+
+void WriteTransferDataToBuffer(u32 battler, u32 bufferId, u16 size, u8 *data, u32 packetId) {
+    if (ReadConnectedByte() != 0) {
+        struct LinkPacket* linkPacket = ((struct LinkPacket*) (GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS + 0x200));
+        s32 i;
+
+        if (bufferId != 2) {
+            if (bufferId == 1) {
+                gHasPeerFinishedTask = 0;
+            }
+            linkPacket->bufferId = bufferId;
+            linkPacket->execCompleted = 0;
+            linkPacket->battler = battler;
+            linkPacket->battlerAttacker = gBattlerAttacker;
+            linkPacket->battlerTarget = gBattlerTarget;
+            linkPacket->absentBattlerFlags = gAbsentBattlerFlags;
+            linkPacket->effectBattler = gEffectBattler;
+            linkPacket->packetId = packetId;
+            writeReceivedPacketId(getPeerLinkPacket()->packetId);
+
+            if (size <= 512) {
+                memcpy(linkPacket->data, data, size);
+                linkPacket->size = size;
+            }
+            else {
+                DebugPrintf("Failed to write data to LinkPacket. Requested size of %u exceeds LinkPacket's size limit of 512.", size);
+            }
+        } 
+        // else {
+        //     linkPacket->execCompleted = 1;
+        //     linkPacket->playerId = ReadConnectedByte() - 1;
+        //     linkPacket->battler = battler;
+        //     linkPacket->battlerAttacker = gBattlerAttacker;
+        //     linkPacket->battlerTarget = gBattlerTarget;
+        //     linkPacket->absentBattlerFlags = gAbsentBattlerFlags;
+        //     linkPacket->effectBattler = gEffectBattler;
+        //     linkPacket->packetId = packetId;
+        //     writeReceivedPacketId(getPeerLinkPacket()->packetId);
+        // }
+        
+    }
+}
+
+struct LinkPacket* getPeerLinkPacket(void) {
+    if (ReadConnectedByte() != 0) {
+        return ((struct LinkPacket*) (GENERAL_BUFFER_BEGIN_PEER_ADDRESS + 0x200));
+    }
+}
+
+u32 incrementPacketIdCounter(void) {
+    ++gPacketIdCounter;
+
+    // Handle overflow, 0 is our sentinel value
+    if (gPacketIdCounter == 0) {
+        gPacketIdCounter = 1;
+    }
+
+    return gPacketIdCounter;
+}
+
+void writeReceivedPacketId(u32 packetId) {
+    struct LinkPacket* linkPacket = ((struct LinkPacket*) (GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS + 0x200));
+    linkPacket->receivedPacketId = packetId;
+}
+
+u8 hasPeerReceivedLatestPacket(void) {
+    struct LinkPacket* peerPacket = getPeerLinkPacket();
+    struct LinkPacket* myPacket = ((struct LinkPacket*) (GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS + 0x200));
+    writeReceivedPacketId(getPeerLinkPacket()->packetId);
+    if (peerPacket->receivedPacketId == myPacket->packetId) {
+        return 1;
+    }
+    return 0;
+}
+
+u8 hasReceivedLatestPacket(u32 packetId) {
+    if (packetId != 0 && gOldPacketId == 0) {
+        gOldPacketId = packetId;
+        return 1;
+    }
+
+    if (packetId != gOldPacketId) {
+        gOldPacketId = packetId;
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
+void writeExecCompleted(u32 execCompleted) {
+    if (ReadConnectedByte() != 0) {
+        struct LinkPacket* linkPacket = ((struct LinkPacket*) (GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS + 0x200));
+        
+        linkPacket->packetId = incrementPacketIdCounter();
+        writeReceivedPacketId(getPeerLinkPacket()->packetId);
+        linkPacket->execCompleted = execCompleted;
+    }
+}
+
+void clearExecFlags(void) {
+    memset(gMultiplayerExecFlags, 0, sizeof(u32) * 4);
+}
+
+u8 execFlagsAreCleared(void) {
+    return gMultiplayerExecFlags[0] == 0 && gMultiplayerExecFlags[1] == 0 && gMultiplayerExecFlags[2] == 0 && gMultiplayerExecFlags[3] == 0;
+}
+
+void markExecFlag(u32 battler, u32 value) {
+    if (battler >= 4) {
+        DebugPrintf("ERROR: Tried to mark battler %u which does not exist.");
+    }
+
+    gMultiplayerExecFlags[battler % 4] = value;
+}
+
+u32 getExecFlag(u32 battler) {
+    if (battler >= 4) {
+        DebugPrintf("ERROR: Tried to get exec flag for battler %u which does not exist.");
+    }
+
+    return gMultiplayerExecFlags[battler % 4];
 }
