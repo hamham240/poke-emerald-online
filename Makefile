@@ -79,7 +79,8 @@ MODERN_ELF_NAME := $(MODERN_ROM_NAME:.gba=.elf)
 MODERN_MAP_NAME := $(MODERN_ROM_NAME:.gba=.map)
 MODERN_OBJ_DIR_NAME := build/modern
 
-SHELL := /bin/bash -o pipefail
+SHELL := bash
+.SHELLFLAGS := -o pipefail -c
 
 ELF = $(ROM:.gba=.elf)
 MAP = $(ROM:.gba=.map)
@@ -144,6 +145,8 @@ endif
 CPPFLAGS := -iquote include -iquote $(GFLIB_SUBDIR) -Wno-trigraphs -DMODERN=$(MODERN) -DTESTING=$(TEST)
 ifneq ($(MODERN),1)
 CPPFLAGS += -I tools/agbcc/include -I tools/agbcc -nostdinc -undef
+else
+CPPFLAGS += -std=gnu17
 endif
 
 LDFLAGS = -Map ../../$(MAP)
