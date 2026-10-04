@@ -1493,12 +1493,8 @@ static void OverworldBasic(void)
     ScriptContext_RunScript();
     RunTasks();
 
-    WriteMultiplayerPacketToBuffer();
-    //memcpy(((void*)0x10000010), GetPeerPacket(), sizeof(struct MultiplayerPacket));
-    //memcpy(((void*)0x10000010), &GetPeerPacket()->trainerBattleOppA, sizeof(u16));
-    //memcpy(((void*)0x10000012), &gTrainerBattleOpponent_A, sizeof(u16));
-    TrySpawnMultiplayerAvatar();
-    TryMoveMultiplayerSprite();
+    Multiplayer_SendAvatarState();
+    UpdateMultiplayerAvatar();
     OnlineLink_RunBlockTest();
 
     AnimateSprites();

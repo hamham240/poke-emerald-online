@@ -34,6 +34,7 @@
 #include "constants/rgb.h"
 #include "trainer_hill.h"
 #include "fldeff.h"
+#include "multiplayer.h"
 
 static void Task_ExitNonAnimDoor(u8);
 static void Task_ExitNonDoor(u8);
@@ -327,6 +328,7 @@ static void Task_ExitDoor(u8 taskId)
         FreezeObjectEvents();
         PlayerGetDestCoords(x, y);
         FieldSetDoorOpened(*x, *y);
+        Multiplayer_SendDoorEvent(AVATAR_EVENT_DOOR_SET_OPEN, *x, *y);
         task->tState = 1;
         break;
     case 1:
@@ -344,6 +346,7 @@ static void Task_ExitDoor(u8 taskId)
         {
             u8 objEventId;
             task->data[1] = FieldAnimateDoorClose(*x, *y);
+            Multiplayer_SendDoorEvent(AVATAR_EVENT_DOOR_CLOSE, *x, *y);
             objEventId = GetObjectEventIdByLocalIdAndMap(OBJ_EVENT_ID_PLAYER, 0, 0);
             ObjectEventClearHeldMovementIfFinished(&gObjectEvents[objEventId]);
             task->tState = 3;
@@ -687,6 +690,7 @@ static void Task_DoDoorWarp(u8 taskId)
         PlayerGetDestCoords(x, y);
         PlaySE(GetDoorSoundEffect(*x, *y - 1));
         task->data[1] = FieldAnimateDoorOpen(*x, *y - 1);
+        Multiplayer_SendDoorEvent(AVATAR_EVENT_DOOR_OPEN, *x, *y - 1);
         task->tState = 1;
         break;
     case 1:
@@ -705,6 +709,7 @@ static void Task_DoDoorWarp(u8 taskId)
         {
             u8 objEventId;
             task->data[1] = FieldAnimateDoorClose(*x, *y - 1);
+            Multiplayer_SendDoorEvent(AVATAR_EVENT_DOOR_CLOSE, *x, *y - 1);
             objEventId = GetObjectEventIdByLocalIdAndMap(OBJ_EVENT_ID_PLAYER, 0, 0);
             ObjectEventClearHeldMovementIfFinished(&gObjectEvents[objEventId]);
             SetPlayerVisibility(FALSE);

@@ -89,7 +89,6 @@ static void FillFactoryFrontierTrainerParty(u16 trainerId, u8 firstMonId);
 static void FillFactoryTentTrainerParty(u16 trainerId, u8 firstMonId);
 static u8 GetFrontierTrainerFixedIvs(u16 trainerId);
 static void FillPartnerParty(u16 trainerId);
-static void FillOnlinePartnerParty(void);
 static void SetEReaderTrainerChecksum(struct BattleTowerEReaderTrainer *ereaderTrainer);
 static u8 SetTentPtrsGetLevel(void);
 static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId);
@@ -2085,15 +2084,6 @@ static void Task_StartBattleAfterTransition(u8 taskId)
 {
     if (IsBattleTransitionDone() == TRUE)
     {
-        // TODO
-        // This flag is currently used to signal that one player is waiting on another for a battle.
-        // The flag is flipped after the battle transition animation is finished.
-        // This means that the there is a window for both players to acknowledge that they are ready to
-        // proceed only during this battle transition animation. This *could* be problematic in the
-        // future, so we may want to move this to when both players are situated in the battle
-        // (wherever that is).
-        gIsWaitingOnOtherPlayer = FALSE;
-
         gMain.savedCallback = HandleSpecialTrainerBattleEnd;
         SetMainCallback2(CB2_InitBattle);
         DestroyTask(taskId);
@@ -2295,7 +2285,6 @@ enum
     ONLINE_PAIR_COMMITTED,
 };
 
-#define tPartySent  data[0]
 #define tPairState  data[1]
 #define tReadySent  data[2]
 
@@ -2303,10 +2292,8 @@ static void StartOnlineBattle(u8 taskId)
 {
     OnlinePair_ClearPeer();
 
-    // Fill the partner's party
-    FillOnlinePartnerParty();
-
-    // The battle start sequence puts the host's mons first, then the joiner's
+    // The battle start sequence swaps the parties, putting the host's mons
+    // first, then the joiner's
     sOnlinePartyOffset = GetMultiplayerId() == 0 ? 0 : MULTI_PARTY_SIZE;
     memcpy(sOnlineSelectedOrder, gSelectedOrderFromParty, sizeof(sOnlineSelectedOrder));
     DebugPrintf("Online battle paired: picks=%u,%u,%u offset=%u", sOnlineSelectedOrder[0], sOnlineSelectedOrder[1], sOnlineSelectedOrder[2], sOnlinePartyOffset);
@@ -2337,17 +2324,6 @@ static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId)
     if (IsFieldMessageBoxHidden())
         ShowFieldMessage(gText_AwaitingLinkup);
 
-    gIsWaitingOnOtherPlayer = TRUE;
-    WriteMultiplayerPacketToBuffer();
-
-    // The partner reads our party from the shared buffer once paired, and it
-    // can't change while waiting, so it only needs writing once
-    if (!task->tPartySent)
-    {
-        WritePartyPacketToBuffer();
-        task->tPartySent = TRUE;
-    }
-
     // Losing the connection undoes any commitment; start over once it's back
     if (!connected)
     {
@@ -2370,7 +2346,6 @@ static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId)
             if (connected)
                 OnlinePair_Send(ONLINE_MSG_PAIR_CANCEL, trainerId);
             HideFieldMessageBox();
-            gIsWaitingOnOtherPlayer = FALSE;
             EnableMonSelectCancel();
             LoadPlayerParty();
             BeginNormalPaletteFade(PALETTES_ALL, 0, 0, 16, RGB_BLACK);
@@ -2399,7 +2374,6 @@ static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId)
     }
 }
 
-#undef tPartySent
 #undef tPairState
 #undef tReadySent
 
@@ -3409,16 +3383,6 @@ static void FillPartnerParty(u16 trainerId)
             j = IsFrontierTrainerFemale(trainerId + TRAINER_RECORD_MIXING_APPRENTICE);
             SetMonData(&gPlayerParty[MULTI_PARTY_SIZE + i], MON_DATA_OT_GENDER, &j);
         }
-    }
-}
-
-static void FillOnlinePartnerParty()
-{
-    struct Pokemon* pokemons = getPeerParty();
-
-    for (int i = 0; i < MULTI_PARTY_SIZE; i++)
-    {
-        gPlayerParty[MULTI_PARTY_SIZE + i] = pokemons[i];
     }
 }
 

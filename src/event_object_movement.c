@@ -1219,10 +1219,7 @@ u8 GetFirstInactiveObjectEventId(void)
 
 u8 GetObjectEventIdByLocalIdAndMap(u8 localId, u8 mapNum, u8 mapGroupId)
 {
-    if (localId == (OBJ_EVENT_ID_PLAYER - 1)) {
-        return gMultiplayerAvatarObjId;
-    }
-    else if (localId < OBJ_EVENT_ID_PLAYER)
+    if (localId < OBJ_EVENT_ID_PLAYER)
         return GetObjectEventIdByLocalIdAndMapInternal(localId, mapNum, mapGroupId);
 
     return GetObjectEventIdByLocalId(localId);
@@ -1372,10 +1369,17 @@ static bool8 GetAvailableObjectEventId(u16 localId, u8 mapNum, u8 mapGroup, u8 *
 static void RemoveObjectEvent(struct ObjectEvent *objectEvent)
 {
     objectEvent->active = FALSE;
-    if (&gObjectEvents[gMultiplayerAvatarObjId] == objectEvent) {
+    if (IsMultiplayerAvatar(objectEvent))
         ResetMultiplayerAvatarIds();
-    }
     RemoveObjectEventInternal(objectEvent);
+}
+
+void RemoveMultiplayerAvatarObjectEvent(void)
+{
+    if (gMultiplayerAvatarObjId < OBJECT_EVENTS_COUNT && gObjectEvents[gMultiplayerAvatarObjId].active)
+        RemoveObjectEvent(&gObjectEvents[gMultiplayerAvatarObjId]);
+    else
+        ResetMultiplayerAvatarIds();
 }
 
 void RemoveObjectEventByLocalIdAndMap(u8 localId, u8 mapNum, u8 mapGroup)
@@ -1467,7 +1471,7 @@ static u8 TrySetupObjectEventSprite(const struct ObjectEventTemplate *objectEven
     return objectEventId;
 }
 
-u8 TrySpawnObjectEventTemplate(const struct ObjectEventTemplate *objectEventTemplate, u8 mapNum, u8 mapGroup, s16 cameraX, s16 cameraY)
+static u8 TrySpawnObjectEventTemplate(const struct ObjectEventTemplate *objectEventTemplate, u8 mapNum, u8 mapGroup, s16 cameraX, s16 cameraY)
 {
     u8 objectEventId;
     struct SpriteTemplate spriteTemplate;
@@ -1682,7 +1686,9 @@ void RemoveObjectEventsOutsideView(void)
         {
             struct ObjectEvent *objectEvent = &gObjectEvents[i];
 
-            if (objectEvent->active && !objectEvent->isPlayer)
+            // The other player's avatar is managed by multiplayer.c; despawning it here
+            // would just have it respawn next frame with its animation state lost.
+            if (objectEvent->active && !objectEvent->isPlayer && !IsMultiplayerAvatar(objectEvent))
                 RemoveObjectEventIfOutsideView(objectEvent);
         }
     }
@@ -2189,7 +2195,7 @@ u8 GetObjectEventIdByPosition(u16 x, u16 y, u8 elevation)
 
     for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
     {
-        if (gObjectEvents[i].active)
+        if (gObjectEvents[i].active && !IsMultiplayerAvatar(&gObjectEvents[i]))
         {
             if (gObjectEvents[i].currentCoords.x == x
              && gObjectEvents[i].currentCoords.y == y
@@ -4738,7 +4744,8 @@ static bool8 DoesObjectCollideWithObjectAt(struct ObjectEvent *objectEvent, s16 
     for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
     {
         curObject = &gObjectEvents[i];
-        if (curObject->active && curObject != objectEvent)
+        // The other player's avatar is a ghost: nothing can bump into it
+        if (curObject->active && curObject != objectEvent && !IsMultiplayerAvatar(curObject))
         {
             if ((curObject->currentCoords.x == x && curObject->currentCoords.y == y) || (curObject->previousCoords.x == x && curObject->previousCoords.y == y))
             {
@@ -4882,12 +4889,25 @@ bool8 ObjectEventSetHeldMovement(struct ObjectEvent *objectEvent, u8 movementAct
     if (ObjectEventIsMovementOverridden(objectEvent))
         return TRUE;
 
+    // Every movement the player makes (stepping, turning, jumping, scripted
+    // movement, ...) passes through here; the online partner replays it.
+    if (objectEvent->isPlayer)
+        Multiplayer_SendPlayerMovement(objectEvent, movementActionId);
+
     UnfreezeObjectEvent(objectEvent);
     objectEvent->movementActionId = movementActionId;
     objectEvent->heldMovementActive = TRUE;
     objectEvent->heldMovementFinished = FALSE;
     gSprites[objectEvent->spriteId].sActionFuncId = 0;
     return FALSE;
+}
+
+// Runs one extra frame of the object's held movement. Used to let the online
+// partner's avatar catch up when its movements pile up.
+void ObjectEventAdvanceHeldMovement(struct ObjectEvent *objectEvent)
+{
+    if (ObjectEventIsHeldMovementActive(objectEvent) && !objectEvent->heldMovementFinished)
+        ObjectEventExecHeldMovementAction(objectEvent, &gSprites[objectEvent->spriteId]);
 }
 
 void ObjectEventForceSetHeldMovement(struct ObjectEvent *objectEvent, u8 movementActionId)

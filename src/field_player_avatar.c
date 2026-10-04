@@ -29,6 +29,7 @@
 #include "constants/moves.h"
 #include "constants/songs.h"
 #include "constants/trainer_types.h"
+#include "multiplayer.h"
 
 #define NUM_FORCED_MOVEMENTS 18
 #define NUM_ACRO_BIKE_COLLISIONS 5
@@ -1222,6 +1223,24 @@ u8 GetPlayerAvatarGraphicsIdByStateIdAndGender(u8 state, u8 gender)
     return sPlayerAvatarGfxIds[state][gender];
 }
 
+// The online partner is drawn with the rival's sprites, like link players in the
+// Cable Club. The player sprites share the local player's palette slot, so using
+// them would recolor the local player whenever the two genders differ.
+u8 GetRivalAvatarGraphicsIdByPlayerGraphicsId(u8 gfxId)
+{
+    u8 state, gender;
+
+    for (state = 0; state < ARRAY_COUNT(sPlayerAvatarGfxIds); state++)
+    {
+        for (gender = 0; gender < GENDER_COUNT; gender++)
+        {
+            if (sPlayerAvatarGfxIds[state][gender] == gfxId)
+                return sRivalAvatarGfxIds[state][gender];
+        }
+    }
+    return sRivalAvatarGfxIds[PLAYER_AVATAR_STATE_NORMAL][GetPlayerAvatarGenderByGraphicsId(gfxId)];
+}
+
 u8 GetFRLGAvatarGraphicsIdByGender(u8 gender)
 {
     return sFRLGAvatarGfxIds[gender];
@@ -1391,6 +1410,7 @@ void InitPlayerAvatar(s16 x, s16 y, u8 direction, u8 gender)
 
 void SetPlayerInvisibility(bool8 invisible)
 {
+    Multiplayer_SendPlayerInvisibility(invisible);
     gObjectEvents[gPlayerAvatar.objectEventId].invisible = invisible;
     if (TestPlayerAvatarFlags(PLAYER_AVATAR_FLAG_SURFING))
         gSprites[gObjectEvents[gPlayerAvatar.objectEventId].fieldEffectSpriteId].invisible = invisible;

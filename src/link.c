@@ -2592,6 +2592,7 @@ static void Online_Reset(void)
     sOnlineResendLinkPlayer = FALSE;
     gReceivedRemoteLinkPlayers = FALSE;
     OnlinePair_ClearPeer();
+    Multiplayer_OnLinkReset();
 }
 
 // Called once per frame from the main loop, in place of HandleLinkConnection.
@@ -2663,6 +2664,12 @@ void Online_UpdateLink(void)
             Online_HandlePairMessage(type, trainerId);
             break;
         }
+        case ONLINE_MSG_AVATAR_STATE:
+            Multiplayer_ReceiveAvatarState();
+            break;
+        case ONLINE_MSG_AVATAR_EVENT:
+            Multiplayer_ReceiveAvatarEvent();
+            break;
         case ONLINE_MSG_CLOSE_LINK:
             OnlineLink_Receive(NULL, 0);
             gReadyToCloseLink[peerId] = TRUE;

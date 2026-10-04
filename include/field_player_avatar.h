@@ -39,6 +39,7 @@ void StopPlayerAvatar(void);
 void SetSpinStartFacingDir(u8);
 void GetXYCoordsOneStepInFrontOfPlayer(s16 *xPtr, s16 *yPtr);
 u8 GetRivalAvatarGraphicsIdByStateIdAndGender(u8 state, u8 gender);
+u8 GetRivalAvatarGraphicsIdByPlayerGraphicsId(u8 gfxId);
 void SetPlayerAvatarFieldMove(void);
 u8 GetPlayerAvatarGraphicsIdByCurrentState(void);
 void SetPlayerAvatarStateMask(u8 flags);

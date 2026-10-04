@@ -32,48 +32,67 @@
 #include "battle_setup.h"
 #include "pokemon.h"
 #include "battle.h"
-//#include "species.h"
-//#include "macro.h"
+#include "online_link.h"
 
 u8 gMultiplayerAvatarObjId;
-u8 gMultiplayerAvatarSpriteId;
 bool8 gDisableMonSelectCancel;
-bool8 gIsWaitingOnOtherPlayer;
 
-enum { // Buffer Sizes
-    GENERAL_BUFFER_SIZE = 0x00F00000
-};
+// The partner's avatar is driven by two messages:
+//  - ONLINE_MSG_AVATAR_STATE: where the partner is and how they look. Sent when
+//    it changes, and periodically. Decides whether the avatar is shown at all.
+//  - ONLINE_MSG_AVATAR_EVENT: each movement, visibility change and door
+//    animation, replayed in order so the avatar does exactly what they did.
 
-enum { // Addresses
-    GENERAL_BUFFER_BEGIN_ADDRESS = 0x10000000,
+// Events that the avatar hasn't replayed yet
+#define AVATAR_EVENT_QUEUE_SIZE 16
+// With more than this many queued, the avatar plays at double speed
+#define AVATAR_CATCH_UP_BACKLOG 1
+// With more than this many queued, the oldest are skipped
+#define AVATAR_MAX_BACKLOG 6
+// How long the avatar must sit idle before it is corrected from the state
+#define AVATAR_IDLE_SYNC_FRAMES 30
+// The state is resent this often even when unchanged
+#define AVATAR_STATE_RESEND_FRAMES 60
 
-    GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS = 0x10000001, // Where the local client can place data
-    GENERAL_BUFFER_BEGIN_PEER_ADDRESS = 0x10001001, // Where the emulator will place the peer's data
-
-    GENERAL_BUFFER_END_ADDRESS = (GENERAL_BUFFER_BEGIN_ADDRESS + GENERAL_BUFFER_SIZE)
-};
+static EWRAM_DATA struct OnlineAvatarEvent sAvatarEvents[AVATAR_EVENT_QUEUE_SIZE] = {0};
+static EWRAM_DATA u8 sAvatarEventHead = 0;
+static EWRAM_DATA u8 sAvatarEventCount = 0;
+static EWRAM_DATA u8 sAvatarIdleFrames = 0;
+static EWRAM_DATA u8 sAvatarSurfBlobSpriteId = 0;
+static EWRAM_DATA bool8 sAvatarDoorAnimating = FALSE;
+static EWRAM_DATA struct OnlineAvatarState sPeerState = {0};
+static EWRAM_DATA bool8 sHasPeerState = FALSE;
+static EWRAM_DATA struct OnlineAvatarState sSentState = {0};
+static EWRAM_DATA u8 sStateResendTimer = 0;
 
 void InitMultiplayerData(void) {
     gDisableMonSelectCancel = FALSE;
-    gIsWaitingOnOtherPlayer = FALSE;
 }
 
 void InitMultiplayerAvatarIds(void)
 {
     gMultiplayerAvatarObjId = OBJECT_EVENTS_COUNT;
-    gMultiplayerAvatarSpriteId = MAX_SPRITES;
+    sAvatarEventHead = 0;
+    sAvatarEventCount = 0;
+    sAvatarIdleFrames = 0;
+    sAvatarDoorAnimating = FALSE;
 }
 
 void ResetMultiplayerAvatarIds(void) {
     InitMultiplayerAvatarIds();
 }
 
-u8 ReadConnectedByte(void) {
-    // The first byte in the general buffer marks a "connected" status
-    // This can be handy when trying to see if there are any packets to read and process
-    // A value of 0 == not connected, 1 == currently connected
-    // NOTE: This byte does not get modified by the ROM, only by the emulator
-    return *((u8*) GENERAL_BUFFER_BEGIN_ADDRESS);
+// Called when the link connects or drops
+void Multiplayer_OnLinkReset(void)
+{
+    sHasPeerState = FALSE;
+    sStateResendTimer = AVATAR_STATE_RESEND_FRAMES; // Send ours right away
+}
+
+bool32 IsMultiplayerAvatar(const struct ObjectEvent *objectEvent)
+{
+    return gMultiplayerAvatarObjId < OBJECT_EVENTS_COUNT
+        && objectEvent == &gObjectEvents[gMultiplayerAvatarObjId];
 }
 
 // Online co-op battles are flagged as a link battle with an in-game partner,
@@ -82,265 +101,402 @@ bool32 IsOnlineBattle(void) {
     return (gBattleTypeFlags & (BATTLE_TYPE_LINK | BATTLE_TYPE_INGAME_PARTNER)) == (BATTLE_TYPE_LINK | BATTLE_TYPE_INGAME_PARTNER);
 }
 
-void SpawnMultiplayerAvatar(struct MultiplayerPacket* multiplayerPacket) {
-    struct ObjectEvent* player;
-    struct ObjectEventTemplate objTemplate;
+static u8 GetPeerFacingDirection(void)
+{
+    if (sPeerState.facingDirection < DIR_SOUTH || sPeerState.facingDirection > DIR_EAST)
+        return DIR_SOUTH;
+    return sPeerState.facingDirection;
+}
 
-    // Grab the player's object event
-    player = &gObjectEvents[gPlayerAvatar.objectEventId];
+// Where the given map's tiles sit in the local map's coordinates: (0, 0) for the
+// local map itself, or the shift for a map connected to it. FALSE for any other
+// map, as the partner can't be drawn there. Mirrors how fieldmap.c lays out the
+// connected maps around the local one.
+static bool32 GetMapOffsetFromLocalMap(u8 mapGroup, u8 mapNum, s16 *dx, s16 *dy)
+{
+    const struct MapConnections *connections = gMapHeader.connections;
+    s32 i;
 
-    // Create an object template, almost verbatim as how InitPlayerAvatar does it
-    objTemplate.localId = OBJ_EVENT_ID_PLAYER - 1;
-    objTemplate.graphicsId = 0;
-    objTemplate.kind = 0;
-    objTemplate.x = multiplayerPacket->x;
-    objTemplate.y = multiplayerPacket->y;
-    objTemplate.elevation = 0;
-    objTemplate.movementType = 0xB; // found in event_object_movement.h, makes character look in random directions
-    objTemplate.movementRangeX = 0;
-    objTemplate.movementRangeY = 0;
-    objTemplate.trainerType = TRAINER_TYPE_NONE;
-    objTemplate.trainerRange_berryTreeId = 0;
-    objTemplate.script = NULL;
-    objTemplate.flagId = 0;
-
-    switch (GetPlayerFacingDirection())
+    if (mapGroup == gSaveBlock1Ptr->location.mapGroup && mapNum == gSaveBlock1Ptr->location.mapNum)
     {
-    case DIR_NORTH:
-        objTemplate.movementType = MOVEMENT_TYPE_FACE_UP;
-        break;
-    case DIR_WEST:
-        objTemplate.movementType = MOVEMENT_TYPE_FACE_LEFT;
-        break;
-    case DIR_EAST:
-        objTemplate.movementType = MOVEMENT_TYPE_FACE_RIGHT;
-        break;
+        *dx = 0;
+        *dy = 0;
+        return TRUE;
     }
 
-    // Create object event from template
-    gMultiplayerAvatarObjId = TrySpawnObjectEventTemplate(
-        &objTemplate, 
-        multiplayerPacket->mapNum, 
-        multiplayerPacket->mapGroup,
-        objTemplate.x, 
-        objTemplate.y
-    );
+    if (connections == NULL)
+        return FALSE;
+
+    for (i = 0; i < connections->count; i++)
+    {
+        const struct MapConnection *connection = &connections->connections[i];
+        const struct MapHeader *connectedMap;
+        s32 offset = (s32)connection->offset;
+
+        if (connection->mapGroup != mapGroup || connection->mapNum != mapNum)
+            continue;
+
+        connectedMap = GetMapHeaderFromConnection(connection);
+        switch (connection->direction)
+        {
+        case CONNECTION_SOUTH:
+            *dx = offset;
+            *dy = gMapHeader.mapLayout->height;
+            return TRUE;
+        case CONNECTION_NORTH:
+            *dx = offset;
+            *dy = -connectedMap->mapLayout->height;
+            return TRUE;
+        case CONNECTION_EAST:
+            *dx = gMapHeader.mapLayout->width;
+            *dy = offset;
+            return TRUE;
+        case CONNECTION_WEST:
+            *dx = -connectedMap->mapLayout->width;
+            *dy = offset;
+            return TRUE;
+        }
+        // Dive/emerge connections aren't laid out next to the map
+    }
+    return FALSE;
+}
+
+// The avatar is saved along with the other object events, so a save made while
+// the partner was nearby comes back with an avatar we aren't tracking yet. Its
+// map can be a neighbor of the local one, as it survives crossing a connection.
+static void TryAdoptSavedMultiplayerAvatar(void)
+{
+    u8 i;
 
     if (gMultiplayerAvatarObjId != OBJECT_EVENTS_COUNT)
+        return;
+
+    for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
     {
-        gObjectEvents[gMultiplayerAvatarObjId].invisible = FALSE;
-        gMultiplayerAvatarSpriteId = gObjectEvents[gMultiplayerAvatarObjId].spriteId;
+        if (gObjectEvents[i].active && !gObjectEvents[i].isPlayer
+         && gObjectEvents[i].localId == MULTIPLAYER_AVATAR_LOCAL_ID)
+        {
+            gMultiplayerAvatarObjId = i;
+            return;
+        }
     }
+}
+
+static void SpawnMultiplayerAvatar(s16 dx, s16 dy)
+{
+    struct ObjectEventTemplate objTemplate = {0};
+    u8 objId;
+
+    objTemplate.localId = MULTIPLAYER_AVATAR_LOCAL_ID;
+    objTemplate.graphicsId = GetRivalAvatarGraphicsIdByPlayerGraphicsId(sPeerState.graphicsId);
+    objTemplate.kind = OBJ_KIND_NORMAL;
+    objTemplate.x = sPeerState.x + dx - MAP_OFFSET;
+    objTemplate.y = sPeerState.y + dy - MAP_OFFSET;
+    objTemplate.elevation = sPeerState.elevation;
+    objTemplate.movementType = GetTrainerFacingDirectionMovementType(GetPeerFacingDirection());
+    objTemplate.trainerType = TRAINER_TYPE_NONE;
+
+    objId = SpawnSpecialObjectEvent(&objTemplate);
+    if (objId < OBJECT_EVENTS_COUNT)
+    {
+        gMultiplayerAvatarObjId = objId;
+        gObjectEvents[objId].invisible = sPeerState.invisible;
+    }
+    sAvatarSurfBlobSpriteId = MAX_SPRITES;
+}
+
+static bool32 IsAvatarSurfBlob(u8 spriteId)
+{
+    return spriteId < MAX_SPRITES
+        && gSprites[spriteId].inUse
+        && gSprites[spriteId].callback == UpdateSurfBlobFieldEffect
+        && gSprites[spriteId].data[2] == gMultiplayerAvatarObjId;
+}
+
+static void DestroyAvatarSurfBlob(void)
+{
+    if (IsAvatarSurfBlob(sAvatarSurfBlobSpriteId))
+        DestroySprite(&gSprites[sAvatarSurfBlobSpriteId]);
+    sAvatarSurfBlobSpriteId = MAX_SPRITES;
+}
+
+// Gives the avatar a surf blob while it is drawn surfing. Checked every frame,
+// so the blob also comes back when sprites are rebuilt (after a battle, a menu, ...).
+static void UpdateAvatarSurfBlob(struct ObjectEvent *objEvent)
+{
+    bool32 isSurfing = objEvent->graphicsId == OBJ_EVENT_GFX_RIVAL_BRENDAN_SURFING
+                    || objEvent->graphicsId == OBJ_EVENT_GFX_RIVAL_MAY_SURFING;
+
+    if (isSurfing && !IsAvatarSurfBlob(sAvatarSurfBlobSpriteId))
+    {
+        s32 savedArgs[3];
+
+        // Don't clobber the arguments of a field effect the player has going
+        memcpy(savedArgs, gFieldEffectArguments, sizeof(savedArgs));
+        gFieldEffectArguments[0] = objEvent->currentCoords.x;
+        gFieldEffectArguments[1] = objEvent->currentCoords.y;
+        gFieldEffectArguments[2] = gMultiplayerAvatarObjId;
+        sAvatarSurfBlobSpriteId = FieldEffectStart(FLDEFF_SURF_BLOB);
+        memcpy(gFieldEffectArguments, savedArgs, sizeof(savedArgs));
+        if (sAvatarSurfBlobSpriteId < MAX_SPRITES)
+            SetSurfBlob_BobState(sAvatarSurfBlobSpriteId, BOB_PLAYER_AND_MON);
+    }
+    else if (!isSurfing)
+    {
+        DestroyAvatarSurfBlob();
+    }
+
+    if (IsAvatarSurfBlob(sAvatarSurfBlobSpriteId))
+        gSprites[sAvatarSurfBlobSpriteId].invisible = objEvent->invisible;
+}
+
+static void RemoveMultiplayerAvatar(void)
+{
+    DestroyAvatarSurfBlob();
+    RemoveMultiplayerAvatarObjectEvent();
+}
+
+static struct OnlineAvatarEvent *PopAvatarEvent(void)
+{
+    struct OnlineAvatarEvent *event = &sAvatarEvents[sAvatarEventHead];
+
+    sAvatarEventHead = (sAvatarEventHead + 1) % AVATAR_EVENT_QUEUE_SIZE;
+    sAvatarEventCount--;
+    return event;
+}
+
+static bool32 IsAvatarDoorAnimating(void)
+{
+    if (sAvatarDoorAnimating && !FieldIsDoorAnimationRunning())
+        sAvatarDoorAnimating = FALSE;
+    return sAvatarDoorAnimating;
+}
+
+// Whether the next event has to wait. Visibility changes don't wait for doors:
+// going in, the player vanishes as the door starts closing.
+static bool32 IsAvatarBusy(struct ObjectEvent *objEvent, const struct OnlineAvatarEvent *next)
+{
+    if (objEvent->heldMovementActive)
+        return TRUE;
+    return next->kind != AVATAR_EVENT_SET_INVISIBLE && IsAvatarDoorAnimating();
+}
+
+static void PlayAvatarEvent(struct ObjectEvent *objEvent, const struct OnlineAvatarEvent *event, s16 x, s16 y)
+{
+    switch (event->kind)
+    {
+    case AVATAR_EVENT_MOVE:
+        // Each movement carries the tile it started from, so the avatar is
+        // put back on track if it ever drifts.
+        if (objEvent->currentCoords.x != x || objEvent->currentCoords.y != y)
+        {
+            MoveObjectEventToMapCoords(objEvent, x, y);
+            ObjectEventUpdateElevation(objEvent);
+        }
+        ObjectEventSetHeldMovement(objEvent, event->arg);
+        break;
+    case AVATAR_EVENT_SET_INVISIBLE:
+        objEvent->invisible = event->arg;
+        break;
+    // Door coordinates are the door tile. Off screen these do nothing, and if
+    // the local player's door is animating they are skipped.
+    case AVATAR_EVENT_DOOR_SET_OPEN:
+        if (x >= 0 && y >= 0)
+            FieldSetDoorOpened(x, y);
+        break;
+    case AVATAR_EVENT_DOOR_OPEN:
+        if (x >= 0 && y >= 0 && FieldAnimateDoorOpen(x, y) >= 0)
+            sAvatarDoorAnimating = TRUE;
+        break;
+    case AVATAR_EVENT_DOOR_CLOSE:
+        if (x >= 0 && y >= 0 && FieldAnimateDoorClose(x, y) >= 0)
+            sAvatarDoorAnimating = TRUE;
+        break;
+    }
+}
+
+// Replays the partner's events in order
+static void PlayAvatarEvents(struct ObjectEvent *objEvent)
+{
+    struct OnlineAvatarEvent *event;
+    s16 dx, dy;
+
+    ObjectEventClearHeldMovementIfFinished(objEvent);
+
+    while (sAvatarEventCount > AVATAR_MAX_BACKLOG)
+        PopAvatarEvent();
+
+    while (sAvatarEventCount != 0 && !IsAvatarBusy(objEvent, &sAvatarEvents[sAvatarEventHead]))
+    {
+        event = PopAvatarEvent();
+        if (GetMapOffsetFromLocalMap(event->mapGroup, event->mapNum, &dx, &dy))
+            PlayAvatarEvent(objEvent, event, event->x + dx, event->y + dy);
+    }
+
+    if (sAvatarEventCount > AVATAR_CATCH_UP_BACKLOG)
+        ObjectEventAdvanceHeldMovement(objEvent);
+}
+
+// Safety net for anything the events don't cover (fly, escape rope, skipped
+// events, ...): once the avatar has been idle for a bit, make it match the
+// partner's state.
+static void SyncIdleAvatarWithState(struct ObjectEvent *objEvent, s16 x, s16 y)
+{
+    u8 facing = GetPeerFacingDirection();
+
+    if (objEvent->heldMovementActive || sAvatarEventCount != 0 || IsAvatarDoorAnimating())
+    {
+        sAvatarIdleFrames = 0;
+        return;
+    }
+
+    if (sAvatarIdleFrames < AVATAR_IDLE_SYNC_FRAMES)
+    {
+        sAvatarIdleFrames++;
+        return;
+    }
+
+    if (objEvent->currentCoords.x != x || objEvent->currentCoords.y != y)
+    {
+        MoveObjectEventToMapCoords(objEvent, x, y);
+        objEvent->currentElevation = sPeerState.elevation;
+        objEvent->previousElevation = sPeerState.elevation;
+    }
+    if (objEvent->facingDirection != facing)
+        ObjectEventTurn(objEvent, facing);
+    objEvent->invisible = sPeerState.invisible;
+}
+
+static void UpdateAvatarFromState(struct ObjectEvent *objEvent, s16 dx, s16 dy)
+{
+    u8 graphicsId = GetRivalAvatarGraphicsIdByPlayerGraphicsId(sPeerState.graphicsId);
+
+    // Mounting a bike, surfing, etc.
+    if (objEvent->graphicsId != graphicsId)
+    {
+        ObjectEventSetGraphicsId(objEvent, graphicsId);
+        ObjectEventTurn(objEvent, objEvent->facingDirection);
+    }
+
+    PlayAvatarEvents(objEvent);
+    SyncIdleAvatarWithState(objEvent, sPeerState.x + dx, sPeerState.y + dy);
+    UpdateAvatarSurfBlob(objEvent);
+}
+
+// Runs every overworld frame. The partner's avatar is a "ghost" object event:
+// it is never despawned for being off screen and nothing collides with it
+// (see IsMultiplayerAvatar in event_object_movement.c). It is shown while the
+// partner is on the local map or one connected to it, and is kept through
+// connection crossings, which shift it along with every other object event.
+void UpdateMultiplayerAvatar(void)
+{
+    s16 dx, dy;
+
+    TryAdoptSavedMultiplayerAvatar();
+
+    if (!OnlineLink_IsConnected() || !sHasPeerState
+     || !GetMapOffsetFromLocalMap(sPeerState.mapGroup, sPeerState.mapNum, &dx, &dy))
+    {
+        if (gMultiplayerAvatarObjId != OBJECT_EVENTS_COUNT)
+            RemoveMultiplayerAvatar();
+        return;
+    }
+
+    if (gMultiplayerAvatarObjId == OBJECT_EVENTS_COUNT)
+        SpawnMultiplayerAvatar(dx, dy);
     else
+        UpdateAvatarFromState(&gObjectEvents[gMultiplayerAvatarObjId], dx, dy);
+}
+
+// Runs every overworld frame
+void Multiplayer_SendAvatarState(void)
+{
+    struct OnlineAvatarState state;
+    struct ObjectEvent *player = &gObjectEvents[gPlayerAvatar.objectEventId];
+
+    if (!OnlineLink_IsConnected())
+        return;
+
+    state.mapGroup = gSaveBlock1Ptr->location.mapGroup;
+    state.mapNum = gSaveBlock1Ptr->location.mapNum;
+    state.x = player->currentCoords.x;
+    state.y = player->currentCoords.y;
+    state.facingDirection = player->facingDirection;
+    state.graphicsId = player->graphicsId;
+    state.elevation = player->currentElevation;
+    state.invisible = player->invisible;
+
+    if (memcmp(&state, &sSentState, sizeof(state)) == 0 && ++sStateResendTimer < AVATAR_STATE_RESEND_FRAMES)
+        return;
+
+    if (OnlineLink_Send(ONLINE_MSG_AVATAR_STATE, &state, sizeof(state)))
     {
-        gMultiplayerAvatarSpriteId = MAX_SPRITES;
+        sSentState = state;
+        sStateResendTimer = 0;
     }
 }
 
-void TrySpawnMultiplayerAvatar(void) {
-    if (ReadConnectedByte() == 0) {
+static void SendAvatarEvent(u8 kind, u8 arg, s16 x, s16 y)
+{
+    struct OnlineAvatarEvent event;
+
+    if (!OnlineLink_IsConnected())
         return;
-    }
 
-    struct MultiplayerPacket* multiplayerPacket = GetPeerPacket();
-
-    if (multiplayerPacket->mapNum != gSaveBlock1Ptr->location.mapNum) {
-        return;
-    }
-
-    if (multiplayerPacket->mapGroup != gSaveBlock1Ptr->location.mapGroup) {
-        return;
-    }
-
-    if (gMultiplayerAvatarObjId != OBJECT_EVENTS_COUNT) {
-        return;
-    }
-
-    if (gMultiplayerAvatarSpriteId != MAX_SPRITES) {
-        return;
-    }
-
-    SpawnMultiplayerAvatar(multiplayerPacket);
+    event.mapGroup = gSaveBlock1Ptr->location.mapGroup;
+    event.mapNum = gSaveBlock1Ptr->location.mapNum;
+    event.x = x;
+    event.y = y;
+    event.kind = kind;
+    event.arg = arg;
+    OnlineLink_Send(ONLINE_MSG_AVATAR_EVENT, &event, sizeof(event));
 }
 
-void TryMoveMultiplayerSprite(void) {
-    if (gMultiplayerAvatarObjId == OBJECT_EVENTS_COUNT) {
-        return;
-    }
-
-    if (gMultiplayerAvatarSpriteId == MAX_SPRITES) {
-        return;
-    }
-
-    struct MultiplayerPacket* multiplayerPacket = GetPeerPacket();
-
-    if (multiplayerPacket->mapNum != gSaveBlock1Ptr->location.mapNum) {
-        return;
-    }
-
-    if (multiplayerPacket->mapGroup != gSaveBlock1Ptr->location.mapGroup) {
-        return;
-    }
-
-    // TODO: call InitMultiplayerAvatarIds in main possibly
-    // TODO: Make sure this function gets called continuously? 
-    // TODO: Make sure multiplayer avatar obj event gets de-rendered if off screen (undo the changes I made)
-
-    struct ObjectEvent* playerObjEvent = &gObjectEvents[gPlayerAvatar.objectEventId];
-
-    struct ObjectEvent* objEvent = &gObjectEvents[gMultiplayerAvatarObjId];
-    struct Sprite* sprite = &gSprites[gMultiplayerAvatarSpriteId];
-
-    int totalDistance = 0;
-    totalDistance += abs(objEvent->currentCoords.x - multiplayerPacket->x);
-    totalDistance += abs(objEvent->currentCoords.y - multiplayerPacket->y);
-
-    if (totalDistance > 3) {
-        TryMoveObjectEventToMapCoords(
-            254, 
-            multiplayerPacket->mapNum, 
-            multiplayerPacket->mapGroup, 
-            multiplayerPacket->x - 7,
-            multiplayerPacket->y - 7
-        );
-        //TODO: This causes issues when player moves to a different mapNum (or mapGroup I believe)
-    }
-
-    int currentX = objEvent->currentCoords.x;
-    int currentY = objEvent->currentCoords.y;
-    int packetX = multiplayerPacket->x;
-    int packetY = multiplayerPacket->y;
-
-    int diffX = packetX - currentX; // A positive value indicates player moved to the right
-    int diffY = packetY - currentY; // A positive value indicates player moved down
-
-    if (diffX != 0 || diffY != 0)
-    {
-        u8 maId = objEvent->movementActionId;
-
-        if ((maId < 0x8 || maId > 0xB) && (maId < 0x35 || maId > 0x38))
-        {
-            ObjectEventClearHeldMovementIfActive(objEvent);
-        }
-        else 
-        {
-            ObjectEventClearHeldMovementIfFinished(objEvent);
-        }
-    }
-    else 
-    {
-        ObjectEventClearHeldMovementIfFinished(objEvent);
-    }
-
-    if (!objEvent->heldMovementActive)
-    {
-        if (diffX != 0 || diffY != 0)
-        {
-            if (diffX > 0)
-            {
-                if (diffX == 1)
-                {
-                    ObjectEventSetHeldMovement(objEvent, 0xB);
-                }
-                else
-                {
-                    ObjectEventSetHeldMovement(objEvent, 0x38);
-                }
-            }
-            else if (diffX < 0)
-            {
-                if (diffX == -1)
-                {
-                    ObjectEventSetHeldMovement(objEvent, 0xA);
-                }
-                else 
-                {
-                    ObjectEventSetHeldMovement(objEvent, 0x37);
-                }
-            }
-
-            if (diffY > 0)
-            {
-                if (diffY == 1)
-                {
-                    ObjectEventSetHeldMovement(objEvent, 0x8);
-                }
-                else
-                {
-                    ObjectEventSetHeldMovement(objEvent, 0x35);
-                }
-            }
-            else if (diffY < 0)
-            {
-                if (diffY == -1)
-                {
-                    ObjectEventSetHeldMovement(objEvent, 0x9);
-                }
-                else
-                {
-                    ObjectEventSetHeldMovement(objEvent, 0x36);
-                }
-            }
-        }
-        else 
-        {
-            if (
-                (multiplayerPacket->movementActionId >= 0x0 && multiplayerPacket->movementActionId <= 0x3) ||
-                (multiplayerPacket->movementActionId >= 0x19 && multiplayerPacket->movementActionId <= 0x28) ||
-                (multiplayerPacket->movementActionId >= 0x40 && multiplayerPacket->movementActionId <= 0x43)
-            )
-            {
-                ObjectEventSetHeldMovement(objEvent, multiplayerPacket->movementActionId);
-            }
-        }
-    }
+void Multiplayer_SendPlayerMovement(const struct ObjectEvent *player, u8 movementActionId)
+{
+    if (movementActionId < MOVEMENT_ACTION_STEP_END)
+        SendAvatarEvent(AVATAR_EVENT_MOVE, movementActionId, player->currentCoords.x, player->currentCoords.y);
 }
 
-void WriteMultiplayerPacketToBuffer(void) {
-    if (ReadConnectedByte() != 0) {
-        struct MultiplayerPacket* packet = ((struct MultiplayerPacket*) GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS);
-        
-        struct ObjectEvent* playerObjEvent = &gObjectEvents[gPlayerAvatar.objectEventId];
+void Multiplayer_SendPlayerInvisibility(bool8 invisible)
+{
+    struct ObjectEvent *player = &gObjectEvents[gPlayerAvatar.objectEventId];
 
-        // DMA Write to General Buffer
-        packet->mapGroup = gSaveBlock1Ptr->location.mapGroup;
-        packet->mapNum = gSaveBlock1Ptr->location.mapNum;
-        packet->x = playerObjEvent->currentCoords.x;
-        packet->y = playerObjEvent->currentCoords.y;
-        packet->movementActionId = playerObjEvent->movementActionId;
-        packet->trainerBattleOppA = gTrainerBattleOpponent_A;
-        packet->isWaitingForOtherPlayer = gIsWaitingOnOtherPlayer;
-
-    }
+    SendAvatarEvent(AVATAR_EVENT_SET_INVISIBLE, invisible, player->currentCoords.x, player->currentCoords.y);
 }
 
-struct MultiplayerPacket* GetPeerPacket(void) {
-    if (ReadConnectedByte() != 0) {
-        return ((struct MultiplayerPacket*) GENERAL_BUFFER_BEGIN_PEER_ADDRESS);
-    }
+// For the doors the player warps through; x, y is the door tile
+void Multiplayer_SendDoorEvent(u8 kind, s16 x, s16 y)
+{
+    SendAvatarEvent(kind, 0, x, y);
 }
 
-struct Pokemon* getPeerParty(void) {
-    if (ReadConnectedByte() != 0) {
-        return ((struct Pokemon*) (GENERAL_BUFFER_BEGIN_PEER_ADDRESS + sizeof(struct MultiplayerPacket)));
-    }
+// Called from Online_UpdateLink with an ONLINE_MSG_AVATAR_STATE at the front of
+// the inbox.
+void Multiplayer_ReceiveAvatarState(void)
+{
+    OnlineLink_Receive(&sPeerState, sizeof(sPeerState));
+    sHasPeerState = TRUE;
 }
 
-void WritePartyPacketToBuffer(void) {
-    if (ReadConnectedByte() != 0) {
-        struct Pokemon* pokemonPackets = ((struct Pokemon*) (GENERAL_BUFFER_BEGIN_PERSONAL_ADDRESS + sizeof(struct MultiplayerPacket)));
+// Called from Online_UpdateLink with an ONLINE_MSG_AVATAR_EVENT at the front of
+// the inbox.
+void Multiplayer_ReceiveAvatarEvent(void)
+{
+    struct OnlineAvatarEvent event;
+    s16 dx, dy;
 
-        for (int i = 0; i < MULTI_PARTY_SIZE; ++i) {
-            u32 currentSpecies = GetMonData(&gPlayerParty[i], MON_DATA_SPECIES, NULL);
+    OnlineLink_Receive(&event, sizeof(event));
 
-            if (currentSpecies != SPECIES_NONE) {
-                pokemonPackets[i] = gPlayerParty[i];
-            }
-            else {
-                CpuFill32(0, &pokemonPackets[i], sizeof(struct Pokemon));
-            }
-        }
-    }
+    // Only events the avatar could show are kept. They're kept even before it
+    // spawns: coming out of a door, the partner sends some before their state.
+    if (!GetMapOffsetFromLocalMap(event.mapGroup, event.mapNum, &dx, &dy))
+        return;
+
+    if (sAvatarEventCount == AVATAR_EVENT_QUEUE_SIZE)
+        PopAvatarEvent();
+    sAvatarEvents[(sAvatarEventHead + sAvatarEventCount) % AVATAR_EVENT_QUEUE_SIZE] = event;
+    sAvatarEventCount++;
 }
 
 void DisableMonSelectCancel(void) {
