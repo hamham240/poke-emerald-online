@@ -532,7 +532,12 @@ static void InitLinkBtlControllers(void)
         gBattlerPartyIndexes[0] = 0;
         gBattlerPartyIndexes[1] = 0;
         gBattlerPartyIndexes[2] = 3;
-        gBattlerPartyIndexes[3] = 3;
+        // One trainer's party fills both opposing slots in a 2 vs 1 battle,
+        // as in InitBtlControllers
+        if (BATTLE_TWO_VS_ONE_OPPONENT)
+            gBattlerPartyIndexes[3] = 1;
+        else
+            gBattlerPartyIndexes[3] = 3;
     }
     else
     {
@@ -773,7 +778,10 @@ static void Task_HandleSendLinkBuffersData(u8 taskId)
     switch (gTasks[taskId].data[11])
     {
     case 0:
-        gTasks[taskId].data[10] = 100;
+        // Gives a cable link time to settle; it runs behind the VS screen. The
+        // online link is already up, and without a VS screen this delay would
+        // just be a black screen before the battle intro.
+        gTasks[taskId].data[10] = IsOnlineBattle() ? 1 : 100;
         gTasks[taskId].data[11]++;
         break;
     case 1:
@@ -1572,6 +1580,18 @@ void BtlController_EmitDebugMenu(u32 battler, u32 bufferId)
 {
     gBattleResources->transferBuffer[0] = CONTROLLER_DEBUGMENU;
     PrepareBufferDataTransfer(battler, bufferId, gBattleResources->transferBuffer, 1);
+}
+
+// Online battles: asks the owner of a leveling-up Pokémon about learning a move.
+// The owner replies with BtlController_EmitOneReturnValue.
+void BtlController_EmitOnlineLearnMove(u32 battler, u32 bufferId, u8 mode, u8 monId, u16 move)
+{
+    gBattleResources->transferBuffer[0] = CONTROLLER_ONLINELEARNMOVE;
+    gBattleResources->transferBuffer[1] = mode;
+    gBattleResources->transferBuffer[2] = monId;
+    gBattleResources->transferBuffer[3] = move;
+    gBattleResources->transferBuffer[4] = (move & 0xFF00) >> 8;
+    PrepareBufferDataTransfer(battler, bufferId, gBattleResources->transferBuffer, 5);
 }
 
 // Standardized Controller functions

@@ -10,6 +10,7 @@
 #include "task.h"
 #include "trig.h"
 #include "constants/trainers.h"
+#include "multiplayer.h"
 
 static EWRAM_DATA u16 sBgCnt = 0;
 
@@ -106,11 +107,16 @@ void HandleIntroSlide(u8 terrain)
 {
     u8 taskId;
 
+    // Online battles use the normal terrain slide. The terrain sent by the
+    // host is where the host is standing; slide over our own background.
+    if (IsOnlineBattle())
+        terrain = gBattleTerrain;
+
     if ((gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER) && gPartnerTrainerId != TRAINER_STEVEN_PARTNER && gPartnerTrainerId < TRAINER_CUSTOM_PARTNER)
     {
         taskId = CreateTask(BattleIntroSlidePartner, 0);
     }
-    else if (gBattleTypeFlags & BATTLE_TYPE_LINK)
+    else if (gBattleTypeFlags & BATTLE_TYPE_LINK && !IsOnlineBattle())
     {
         taskId = CreateTask(BattleIntroSlideLink, 0);
     }

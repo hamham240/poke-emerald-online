@@ -27,6 +27,7 @@
 #include "link_rfu.h"
 #include "constants/rgb.h"
 #include "constants/trade.h"
+#include "constants/trainers.h"
 #include "multiplayer.h"
 #include "online_link.h"
 
@@ -40,6 +41,8 @@ static bool8 sOnlineWasConnected;
 static bool8 sOnlineWaitingForStandby;
 static bool8 sOnlineClosingLink;
 static bool8 sOnlineResendLinkPlayer;
+static u16 sOnlinePeerReadyTrainer;
+static u16 sOnlinePeerCommittedTrainer;
 
 // Window IDs for the link error screens
 enum {
@@ -2533,6 +2536,47 @@ static bool32 Online_TryFinishCloseLink(void)
     return TRUE;
 }
 
+void OnlinePair_Send(u8 type, u16 trainerId)
+{
+    OnlineLink_Send(type, &trainerId, sizeof(trainerId));
+}
+
+u16 OnlinePair_GetPeerReady(void)
+{
+    return sOnlinePeerReadyTrainer;
+}
+
+u16 OnlinePair_GetPeerCommitted(void)
+{
+    return sOnlinePeerCommittedTrainer;
+}
+
+// Called by both players as their battle starts, so the next pairing starts
+// from the partner's next messages
+void OnlinePair_ClearPeer(void)
+{
+    sOnlinePeerReadyTrainer = TRAINER_NONE;
+    sOnlinePeerCommittedTrainer = TRAINER_NONE;
+}
+
+static void Online_HandlePairMessage(u8 type, u16 trainerId)
+{
+    switch (type)
+    {
+    case ONLINE_MSG_PAIR_READY:
+        sOnlinePeerReadyTrainer = trainerId;
+        sOnlinePeerCommittedTrainer = TRAINER_NONE;
+        break;
+    case ONLINE_MSG_PAIR_COMMIT:
+        sOnlinePeerReadyTrainer = trainerId;
+        sOnlinePeerCommittedTrainer = trainerId;
+        break;
+    case ONLINE_MSG_PAIR_CANCEL:
+        OnlinePair_ClearPeer();
+        break;
+    }
+}
+
 static void Online_Reset(void)
 {
     u32 i;
@@ -2547,6 +2591,7 @@ static void Online_Reset(void)
     sOnlineClosingLink = FALSE;
     sOnlineResendLinkPlayer = FALSE;
     gReceivedRemoteLinkPlayers = FALSE;
+    OnlinePair_ClearPeer();
 }
 
 // Called once per frame from the main loop, in place of HandleLinkConnection.
@@ -2592,6 +2637,9 @@ void Online_UpdateLink(void)
             OnlineLink_Receive(&gLinkPlayers[peerId], sizeof(gLinkPlayers[peerId]));
             gLinkPlayers[peerId].id = peerId;
             gReceivedRemoteLinkPlayers = TRUE;
+            // Sent when the partner (re)connects, e.g. after a soft reset, and
+            // after each link battle. Any pairing they had is gone.
+            OnlinePair_ClearPeer();
             DebugPrintf("Online link: received link player %u", peerId);
             break;
         case ONLINE_MSG_BLOCK:
@@ -2605,6 +2653,16 @@ void Online_UpdateLink(void)
             OnlineLink_Receive(NULL, 0);
             gReadyToExitStandby[peerId] = TRUE;
             break;
+        case ONLINE_MSG_PAIR_READY:
+        case ONLINE_MSG_PAIR_COMMIT:
+        case ONLINE_MSG_PAIR_CANCEL:
+        {
+            u16 trainerId = TRAINER_NONE;
+
+            OnlineLink_Receive(&trainerId, sizeof(trainerId));
+            Online_HandlePairMessage(type, trainerId);
+            break;
+        }
         case ONLINE_MSG_CLOSE_LINK:
             OnlineLink_Receive(NULL, 0);
             gReadyToCloseLink[peerId] = TRUE;

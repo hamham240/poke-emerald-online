@@ -62,6 +62,8 @@
 #include "battle_util.h"
 #include "constants/pokemon.h"
 #include "config/battle.h"
+#include "link.h"
+#include "multiplayer.h"
 
 // Helper for accessing command arguments and advancing gBattlescriptCurrInstr.
 //
@@ -355,6 +357,10 @@ static bool8 IsFinalStrikeEffect(u16 move);
 static void TryUpdateRoundTurnOrder(void);
 static bool32 ChangeOrderTargetAfterAttacker(void);
 void ApplyExperienceMultipliers(s32 *expAmount, u8 expGetterMonId, u8 faintedBattler);
+static bool32 IsOnlinePartnerMon(u32 monId);
+static bool32 IsTradedMonForExp(u32 monId);
+static void SyncMovesOnline(u32 monId);
+static void ReplaceMoveWithMoveToLearn(u8 movePosition);
 static void RemoveAllTerrains(void);
 
 static void Cmd_attackcanceler(void);
@@ -4053,14 +4059,14 @@ static void Cmd_getexp(void)
     case 0: // check if should receive exp at all
         if (GetBattlerSide(gBattlerFainted) != B_SIDE_OPPONENT
             || IsAiVsAiBattle()
-            || (gBattleTypeFlags &
+            || (!IsOnlineBattle() && (gBattleTypeFlags &
              (BATTLE_TYPE_LINK
               | BATTLE_TYPE_RECORDED_LINK
               | BATTLE_TYPE_TRAINER_HILL
               | BATTLE_TYPE_FRONTIER
               | BATTLE_TYPE_SAFARI
               | BATTLE_TYPE_BATTLE_TOWER
-              | BATTLE_TYPE_EREADER_TRAINER)))
+              | BATTLE_TYPE_EREADER_TRAINER))))
         {
             gBattleScripting.getexpState = 6; // goto last case
         }
@@ -4160,7 +4166,7 @@ static void Cmd_getexp(void)
                 gBattleScripting.getexpState = 5;
                 gBattleMoveDamage = 0; // used for exp
             }
-            else if ((gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER && *expMonId >= 3)
+            else if ((gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER && *expMonId >= 3 && !IsOnlineBattle())
                   || GetMonData(&gPlayerParty[*expMonId], MON_DATA_LEVEL) == MAX_LEVEL)
             {
                 gBattleScripting.getexpState = 5;
@@ -4202,10 +4208,10 @@ static void Cmd_getexp(void)
 
                     ApplyExperienceMultipliers(&gBattleMoveDamage, *expMonId, gBattlerFainted);
 
-                    if (IsTradedMon(&gPlayerParty[*expMonId]))
+                    if (IsTradedMonForExp(*expMonId))
                     {
                         // check if the pokemon doesn't belong to the player
-                        if (gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER && *expMonId >= 3)
+                        if (gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER && *expMonId >= 3 && !IsOnlineBattle())
                             i = STRINGID_EMPTYSTRING4;
                         else
                             i = STRINGID_ABOOSTED;
@@ -4216,7 +4222,12 @@ static void Cmd_getexp(void)
                     }
 
                     // get exp getter battler
-                    if (gBattleTypeFlags & BATTLE_TYPE_DOUBLE)
+                    if (IsOnlineBattle())
+                    {
+                        // Each player's own battler animates and updates their mon
+                        gBattleStruct->expGetterBattlerId = IsOnlinePartnerMon(*expMonId) ? 2 : 0;
+                    }
+                    else if (gBattleTypeFlags & BATTLE_TYPE_DOUBLE)
                     {
                         if (gBattlerPartyIndexes[2] == *expMonId && !(gAbsentBattlerFlags & gBitTable[2]))
                             gBattleStruct->expGetterBattlerId = 2;
@@ -4237,6 +4248,9 @@ static void Cmd_getexp(void)
                     // buffer 'gained' or 'gained a boosted'
                     PREPARE_STRING_BUFFER(gBattleTextBuff2, i);
                     PREPARE_WORD_NUMBER_BUFFER(gBattleTextBuff3, 6, gBattleMoveDamage);
+
+                    if (IsOnlineBattle())
+                        DebugPrintf("Online EXP: mon=%u battler=%u exp=%u sentOut=%u", *expMonId, gBattleStruct->expGetterBattlerId, gBattleMoveDamage, wasSentOut);
 
                     if (wasSentOut || holdEffect == HOLD_EFFECT_EXP_SHARE)
                     {
@@ -7086,13 +7100,125 @@ static void Cmd_handlelearnnewmove(void)
             }
         }
 
+        SyncMovesOnline(monId);
         gBattlescriptCurrInstr = cmd->learnedMovePtr;
+    }
+}
+
+// Forgets the move in movePosition and learns gMoveToLearn in its place
+static void ReplaceMoveWithMoveToLearn(u8 movePosition)
+{
+    u16 moveId = GetMonData(&gPlayerParty[gBattleStruct->expGetterMonId], MON_DATA_MOVE1 + movePosition);
+
+    PREPARE_MOVE_BUFFER(gBattleTextBuff2, moveId)
+
+    RemoveMonPPBonus(&gPlayerParty[gBattleStruct->expGetterMonId], movePosition);
+    SetMonMoveSlot(&gPlayerParty[gBattleStruct->expGetterMonId], gMoveToLearn, movePosition);
+
+    if (gBattlerPartyIndexes[0] == gBattleStruct->expGetterMonId && MOVE_IS_PERMANENT(0, movePosition))
+    {
+        RemoveBattleMonPPBonus(&gBattleMons[0], movePosition);
+        SetBattleMonMoveSlot(&gBattleMons[0], gMoveToLearn, movePosition);
+    }
+    if (gBattleTypeFlags & BATTLE_TYPE_DOUBLE
+        && gBattlerPartyIndexes[2] == gBattleStruct->expGetterMonId
+        && MOVE_IS_PERMANENT(2, movePosition))
+    {
+        RemoveBattleMonPPBonus(&gBattleMons[2], movePosition);
+        SetBattleMonMoveSlot(&gBattleMons[2], gMoveToLearn, movePosition);
+    }
+
+    SyncMovesOnline(gBattleStruct->expGetterMonId);
+}
+
+// Online, both games hold a copy of every Pokémon in the battle. Push a
+// Pokémon's moves to both so the copies match when parties are restored.
+static void SyncMovesOnline(u32 monId)
+{
+    struct MovePpInfo moveData;
+    u32 i, battler;
+
+    if (!IsOnlineBattle())
+        return;
+
+    for (i = 0; i < MAX_MON_MOVES; i++)
+    {
+        moveData.moves[i] = GetMonData(&gPlayerParty[monId], MON_DATA_MOVE1 + i);
+        moveData.pp[i] = GetMonData(&gPlayerParty[monId], MON_DATA_PP1 + i);
+    }
+    moveData.ppBonuses = GetMonData(&gPlayerParty[monId], MON_DATA_PP_BONUSES);
+
+    battler = IsOnlinePartnerMon(monId) ? GetBattlerAtPosition(B_POSITION_PLAYER_RIGHT) : GetBattlerAtPosition(B_POSITION_PLAYER_LEFT);
+    BtlController_EmitSetMonData(battler, BUFFER_A, REQUEST_MOVES_PP_BATTLE, gBitTable[monId], sizeof(moveData), &moveData);
+    MarkBattlerForControllerExec(battler);
+}
+
+// Online, the partner's Pokémon are asked about on the partner's screen
+static void SendOnlineLearnMovePrompt(u8 mode)
+{
+    u32 battler = GetBattlerAtPosition(B_POSITION_PLAYER_RIGHT);
+
+    gBattleResources->bufferB[battler][0] = 0;
+    BtlController_EmitOnlineLearnMove(battler, BUFFER_A, mode, gBattleStruct->expGetterMonId, gMoveToLearn);
+    MarkBattlerForControllerExec(battler);
+}
+
+static u16 GetOnlineLearnMoveReply(void)
+{
+    u32 battler = GetBattlerAtPosition(B_POSITION_PLAYER_RIGHT);
+
+    return gBattleResources->bufferB[battler][1] | (gBattleResources->bufferB[battler][2] << 8);
+}
+
+static void YesNoBoxLearnMoveOnline(const u8 *forgotMovePtr, const u8 *nextInstr)
+{
+    switch (gBattleScripting.learnMoveState)
+    {
+    case 0:
+        SendOnlineLearnMovePrompt(ONLINE_LEARN_MOVE_ASK);
+        gBattleScripting.learnMoveState++;
+        break;
+    case 1:
+        if (gBattleControllerExecFlags == 0)
+        {
+            u16 movePosition = GetOnlineLearnMoveReply();
+
+            if (movePosition >= MAX_MON_MOVES)
+            {
+                gBattlescriptCurrInstr = nextInstr;
+            }
+            else if (IsMoveHM(GetMonData(&gPlayerParty[gBattleStruct->expGetterMonId], MON_DATA_MOVE1 + movePosition)))
+            {
+                PrepareStringBattle(STRINGID_HMMOVESCANTBEFORGOTTEN, B_POSITION_PLAYER_LEFT);
+                gBattleScripting.learnMoveState = 2;
+            }
+            else
+            {
+                gBattlescriptCurrInstr = forgotMovePtr;
+                ReplaceMoveWithMoveToLearn(movePosition);
+            }
+        }
+        break;
+    case 2:
+        // After the HM message, go back to picking a move like the vanilla flow
+        if (gBattleControllerExecFlags == 0)
+        {
+            SendOnlineLearnMovePrompt(ONLINE_LEARN_MOVE_PICK);
+            gBattleScripting.learnMoveState = 1;
+        }
+        break;
     }
 }
 
 static void Cmd_yesnoboxlearnmove(void)
 {
     CMD_ARGS(const u8 *forgotMovePtr);
+
+    if (IsOnlinePartnerMon(gBattleStruct->expGetterMonId))
+    {
+        YesNoBoxLearnMoveOnline(cmd->forgotMovePtr, cmd->nextInstr);
+        return;
+    }
 
     switch (gBattleScripting.learnMoveState)
     {
@@ -7171,24 +7297,7 @@ static void Cmd_yesnoboxlearnmove(void)
                 else
                 {
                     gBattlescriptCurrInstr = cmd->forgotMovePtr;
-
-                    PREPARE_MOVE_BUFFER(gBattleTextBuff2, moveId)
-
-                    RemoveMonPPBonus(&gPlayerParty[gBattleStruct->expGetterMonId], movePosition);
-                    SetMonMoveSlot(&gPlayerParty[gBattleStruct->expGetterMonId], gMoveToLearn, movePosition);
-
-                    if (gBattlerPartyIndexes[0] == gBattleStruct->expGetterMonId && MOVE_IS_PERMANENT(0, movePosition))
-                    {
-                        RemoveBattleMonPPBonus(&gBattleMons[0], movePosition);
-                        SetBattleMonMoveSlot(&gBattleMons[0], gMoveToLearn, movePosition);
-                    }
-                    if (gBattleTypeFlags & BATTLE_TYPE_DOUBLE
-                        && gBattlerPartyIndexes[2] == gBattleStruct->expGetterMonId
-                        && MOVE_IS_PERMANENT(2, movePosition))
-                    {
-                        RemoveBattleMonPPBonus(&gBattleMons[2], movePosition);
-                        SetBattleMonMoveSlot(&gBattleMons[2], gMoveToLearn, movePosition);
-                    }
+                    ReplaceMoveWithMoveToLearn(movePosition);
                 }
             }
         }
@@ -7209,6 +7318,24 @@ static void Cmd_yesnoboxlearnmove(void)
 static void Cmd_yesnoboxstoplearningmove(void)
 {
     CMD_ARGS(const u8 *noInstr);
+
+    if (IsOnlinePartnerMon(gBattleStruct->expGetterMonId))
+    {
+        if (gBattleScripting.learnMoveState == 0)
+        {
+            SendOnlineLearnMovePrompt(ONLINE_LEARN_MOVE_ASK_STOP);
+            gBattleScripting.learnMoveState++;
+        }
+        else if (gBattleControllerExecFlags == 0)
+        {
+            // The reply is TRUE if they chose to stop learning
+            if (GetOnlineLearnMoveReply())
+                gBattlescriptCurrInstr = cmd->nextInstr;
+            else
+                gBattlescriptCurrInstr = cmd->noInstr;
+        }
+        return;
+    }
 
     switch (gBattleScripting.learnMoveState)
     {
@@ -7696,6 +7823,14 @@ static void Cmd_atknameinbuff1(void)
 static void Cmd_drawlvlupbox(void)
 {
     CMD_ARGS();
+
+    // Online, this would show on the host's screen only and pause the battle
+    // for both players until the host dismissed it. It is purely informational.
+    if (IsOnlineBattle())
+    {
+        gBattlescriptCurrInstr = cmd->nextInstr;
+        return;
+    }
 
     if (gBattleScripting.drawlvlupboxState == 0)
     {
@@ -15920,11 +16055,25 @@ u8 GetFirstFaintedPartyIndex(u8 battler)
     return PARTY_SIZE;
 }
 
+// The host runs online battles, so party slots 3-5 hold the partner's Pokémon
+static bool32 IsOnlinePartnerMon(u32 monId)
+{
+    return IsOnlineBattle() && monId >= MULTI_PARTY_SIZE;
+}
+
+// Traded relative to the Pokémon's owner, not whoever is running the battle
+static bool32 IsTradedMonForExp(u32 monId)
+{
+    if (IsOnlinePartnerMon(monId))
+        return GetMonData(&gPlayerParty[monId], MON_DATA_OT_ID) != gLinkPlayers[GetMultiplayerId() ^ 1].trainerId;
+    return IsTradedMon(&gPlayerParty[monId]);
+}
+
 void ApplyExperienceMultipliers(s32 *expAmount, u8 expGetterMonId, u8 faintedBattler)
 {
     u32 holdEffect = GetMonHoldEffect(&gPlayerParty[expGetterMonId]);
 
-    if (IsTradedMon(&gPlayerParty[expGetterMonId]))
+    if (IsTradedMonForExp(expGetterMonId))
         *expAmount = (*expAmount * 150) / 100;
     if (holdEffect == HOLD_EFFECT_LUCKY_EGG)
         *expAmount = (*expAmount * 150) / 100;
@@ -15932,7 +16081,8 @@ void ApplyExperienceMultipliers(s32 *expAmount, u8 expGetterMonId, u8 faintedBat
         *expAmount = (*expAmount * 4915) / 4096;
     if (B_AFFECTION_MECHANICS == TRUE && GetBattlerFriendshipScore(expGetterMonId) >= FRIENDSHIP_50_TO_99)
         *expAmount = (*expAmount * 4915) / 4096;
-    if (CheckBagHasItem(ITEM_EXP_CHARM, 1)) //is also for other exp boosting Powers if/when implemented
+    // The bag checked is the host's, so it can't speak for the partner's Pokémon
+    if (!IsOnlinePartnerMon(expGetterMonId) && CheckBagHasItem(ITEM_EXP_CHARM, 1)) //is also for other exp boosting Powers if/when implemented
         *expAmount = (*expAmount * 150) / 100;
 
     if (B_SCALED_EXP >= GEN_5 && B_SCALED_EXP != GEN_6)

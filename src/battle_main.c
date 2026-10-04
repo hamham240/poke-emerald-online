@@ -1159,12 +1159,17 @@ static void CB2_HandleStartMultiPartnerBattle(void)
             ResetBlockReceivedFlags();
             FindLinkBattleMaster(2, playerMultiplayerId);
             SetAllPlayersBerryData();
-            taskId = CreateTask(InitLinkBattleVsScreen, 0);
-            gTasks[taskId].data[1] = 0x10E;
-            gTasks[taskId].data[2] = 0x5A;
-            gTasks[taskId].data[5] = 0;
-            gTasks[taskId].data[3] = 0x145;
-            gTasks[taskId].data[4] = 0x145;
+            // The VS screen shows four link players; online there are two
+            // players and one NPC trainer, so it is skipped.
+            if (!IsOnlineBattle())
+            {
+                taskId = CreateTask(InitLinkBattleVsScreen, 0);
+                gTasks[taskId].data[1] = 0x10E;
+                gTasks[taskId].data[2] = 0x5A;
+                gTasks[taskId].data[5] = 0;
+                gTasks[taskId].data[3] = 0x145;
+                gTasks[taskId].data[4] = 0x145;
+            }
             gBattleCommunication[MULTIUSE_STATE]++;
         }
         break;

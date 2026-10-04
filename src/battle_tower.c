@@ -43,7 +43,12 @@
 #include "multiplayer.h"
 #include "online_link.h"
 #include "party_menu.h"
-#include "script.h"
+#include "evolution_scene.h"
+#include "item.h"
+#include "money.h"
+#include "constants/hold_effects.h"
+#include "constants/rgb.h"
+#include "palette.h"
 
 extern const u8 MossdeepCity_SpaceCenter_2F_EventScript_MaxieTrainer[];
 extern const u8 MossdeepCity_SpaceCenter_2F_EventScript_TabithaTrainer[];
@@ -88,6 +93,7 @@ static void FillOnlinePartnerParty(void);
 static void SetEReaderTrainerChecksum(struct BattleTowerEReaderTrainer *ereaderTrainer);
 static u8 SetTentPtrsGetLevel(void);
 static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId);
+static void Task_BailOutOfOnlineBattle(u8 taskId);
 static void RestorePartyAfterOnlineBattle(void);
 static void LogOnlineParty(const char *label);
 
@@ -95,6 +101,13 @@ static void LogOnlineParty(const char *label);
 // and which party slots they came from.
 static EWRAM_DATA u8 sOnlinePartyOffset = 0;
 static EWRAM_DATA u8 sOnlineSelectedOrder[MULTI_PARTY_SIZE] = {0};
+
+// After an online battle: party slots whose Pokémon leveled up, and the prize
+static EWRAM_DATA u8 sOnlineLeveledUp = 0;
+static EWRAM_DATA u32 sOnlinePrizeMoney = 0;
+
+static void CB2_FinishOnlineBattleWon(void);
+static u32 GiveOnlinePrizeMoney(void);
 
 
 const u16 gBattleFrontierHeldItems[] =
@@ -2033,6 +2046,9 @@ void HandleSpecialTrainerBattleEnd(void)
         // would otherwise set a flag for it.
         gTrainerBattleOpponent_B = 0;
 
+        // Tells the trainer script whether to show the prize money
+        gSpecialVar_0x8006 = FALSE;
+
         avoidReturnToFieldCB = TRUE;
         if (gTrainerBattleOpponent_A == TRAINER_SECRET_BASE)
         {
@@ -2047,12 +2063,14 @@ void HandleSpecialTrainerBattleEnd(void)
         }
         else
         {
-            SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
             if (!InBattlePyramid() && !InTrainerHillChallenge())
             {
                 RegisterTrainerInMatchCall();
                 SetBattledTrainersFlags();
             }
+            sOnlinePrizeMoney = GiveOnlinePrizeMoney();
+            gSpecialVar_0x8006 = TRUE;
+            SetMainCallback2(CB2_FinishOnlineBattleWon);
         }
         break;
     }
@@ -2254,63 +2272,136 @@ void DoSpecialTrainerBattle(void)
     }
 }
 
-static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId) {
-
-    if (IsFieldMessageBoxHidden()) {
-        ShowFieldMessage(gText_AwaitingLinkup);
-    }
-
-    // Cancel: put the party back and let the script fall back to a normal battle
-    if (JOY_NEW(B_BUTTON)) {
-        HideFieldMessageBox();
-        gIsWaitingOnOtherPlayer = FALSE;
-        EnableMonSelectCancel();
-        LoadPlayerParty();
-        gSpecialVar_Result = TRUE;
-        ScriptContext_Enable();
+// The whiteout expects to start from a black screen, as it does after a battle
+static void Task_BailOutOfOnlineBattle(u8 taskId)
+{
+    if (!gPaletteFade.active)
+    {
+        gMain.state = 0;
+        SetMainCallback2(CB2_WhiteOut);
         DestroyTask(taskId);
-        return;
     }
+}
+
+// Pairing is a two-step handshake over the online link, so both players start
+// the battle or neither does:
+//   READY:     "I'm waiting at this trainer". Cancelling (B) is only allowed here.
+//   COMMITTED: sent once the partner is ready at the same trainer. The battle
+//              starts once the partner has committed too, which means they can
+//              no longer cancel. If they cancelled first, go back to READY.
+enum
+{
+    ONLINE_PAIR_READY,
+    ONLINE_PAIR_COMMITTED,
+};
+
+#define tPartySent  data[0]
+#define tPairState  data[1]
+#define tReadySent  data[2]
+
+static void StartOnlineBattle(u8 taskId)
+{
+    OnlinePair_ClearPeer();
+
+    // Fill the partner's party
+    FillOnlinePartnerParty();
+
+    // The battle start sequence puts the host's mons first, then the joiner's
+    sOnlinePartyOffset = GetMultiplayerId() == 0 ? 0 : MULTI_PARTY_SIZE;
+    memcpy(sOnlineSelectedOrder, gSelectedOrderFromParty, sizeof(sOnlineSelectedOrder));
+    DebugPrintf("Online battle paired: picks=%u,%u,%u offset=%u", sOnlineSelectedOrder[0], sOnlineSelectedOrder[1], sOnlineSelectedOrder[2], sOnlinePartyOffset);
+    LogOnlineParty("paired");
+
+    HideFieldMessageBox();
+
+    // Create a task to start the battle after battle intro transition
+    CreateTask(Task_StartBattleAfterTransition, 1);
+
+    // Play some sound stuff
+    PlayMapChosenOrBattleBGM(0);
+
+    // Set and start the transition type for battle intro
+    BattleTransition_StartOnField(B_TRANSITION_BLACKHOLE_PULSATE);
+
+    DestroyTask(taskId);
+
+    EnableMonSelectCancel();
+}
+
+static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId)
+{
+    struct Task *task = &gTasks[taskId];
+    u16 trainerId = gTrainerBattleOpponent_A;
+    bool32 connected = OnlineLink_IsConnected() && gReceivedRemoteLinkPlayers;
+
+    if (IsFieldMessageBoxHidden())
+        ShowFieldMessage(gText_AwaitingLinkup);
 
     gIsWaitingOnOtherPlayer = TRUE;
     WriteMultiplayerPacketToBuffer();
 
-    // Write the party to the general buffer only once.
-    // It *should* be impossible for a party to be modified
-    // during this state.
-    if (gTasks[taskId].data[0] == 0) {
+    // The partner reads our party from the shared buffer once paired, and it
+    // can't change while waiting, so it only needs writing once
+    if (!task->tPartySent)
+    {
         WritePartyPacketToBuffer();
-        gTasks[taskId].data[0] = 1;
+        task->tPartySent = TRUE;
     }
 
-    if (OnlineLink_IsConnected() && gReceivedRemoteLinkPlayers && GetPeerPacket()->trainerBattleOppA == gTrainerBattleOpponent_A) {
-        if (GetPeerPacket()->isWaitingForOtherPlayer == TRUE) {
-            // Fill the partner's party
-            FillOnlinePartnerParty();
+    // Losing the connection undoes any commitment; start over once it's back
+    if (!connected)
+    {
+        task->tPairState = ONLINE_PAIR_READY;
+        task->tReadySent = FALSE;
+    }
+    else if (!task->tReadySent)
+    {
+        OnlinePair_Send(ONLINE_MSG_PAIR_READY, trainerId);
+        task->tReadySent = TRUE;
+    }
 
-            // The battle start sequence puts the host's mons first, then the joiner's
-            sOnlinePartyOffset = GetMultiplayerId() == 0 ? 0 : MULTI_PARTY_SIZE;
-            memcpy(sOnlineSelectedOrder, gSelectedOrderFromParty, sizeof(sOnlineSelectedOrder));
-            DebugPrintf("Online battle paired: picks=%u,%u,%u offset=%u", sOnlineSelectedOrder[0], sOnlineSelectedOrder[1], sOnlineSelectedOrder[2], sOnlinePartyOffset);
-            LogOnlineParty("paired");
-
+    switch (task->tPairState)
+    {
+    case ONLINE_PAIR_READY:
+        // Cancel: bail out to the last heal location, so the players can regroup
+        // and approach the same trainer together instead of battling alone
+        if (JOY_NEW(B_BUTTON))
+        {
+            if (connected)
+                OnlinePair_Send(ONLINE_MSG_PAIR_CANCEL, trainerId);
             HideFieldMessageBox();
-
-            // Create a task to start the battle after battle intro transition
-            CreateTask(Task_StartBattleAfterTransition, 1);
-            
-            // Play some sound stuff
-            PlayMapChosenOrBattleBGM(0);
-
-            // Set and start the transition type for battle intro
-            BattleTransition_StartOnField(B_TRANSITION_BLACKHOLE_PULSATE);
-
-            DestroyTask(taskId);
-
+            gIsWaitingOnOtherPlayer = FALSE;
             EnableMonSelectCancel();
+            LoadPlayerParty();
+            BeginNormalPaletteFade(PALETTES_ALL, 0, 0, 16, RGB_BLACK);
+            task->func = Task_BailOutOfOnlineBattle;
+            return;
         }
+
+        if (connected && (OnlinePair_GetPeerReady() == trainerId || OnlinePair_GetPeerCommitted() == trainerId))
+        {
+            OnlinePair_Send(ONLINE_MSG_PAIR_COMMIT, trainerId);
+            task->tPairState = ONLINE_PAIR_COMMITTED;
+        }
+        break;
+    case ONLINE_PAIR_COMMITTED:
+        if (OnlinePair_GetPeerCommitted() == trainerId)
+        {
+            StartOnlineBattle(taskId);
+        }
+        else if (OnlinePair_GetPeerReady() != trainerId)
+        {
+            // The partner cancelled before committing
+            OnlinePair_Send(ONLINE_MSG_PAIR_READY, trainerId);
+            task->tPairState = ONLINE_PAIR_READY;
+        }
+        break;
     }
 }
+
+#undef tPartySent
+#undef tPairState
+#undef tReadySent
 
 static void SaveCurrentWinStreak(void)
 {
@@ -3343,6 +3434,63 @@ static void LogOnlineParty(const char *label)
                     GetMonData(&gPlayerParty[i], MON_DATA_HP));
 }
 
+// Each player gets the prize they'd get for beating this trainer alone. The
+// Amulet Coin counts if one of this player's own battlers held it.
+static u32 GiveOnlinePrizeMoney(void)
+{
+    const struct Trainer *trainer = &gTrainers[gTrainerBattleOpponent_A];
+    u32 i, money, multiplier = 1;
+    u32 lastMonLevel = trainer->party[trainer->partySize - 1].lvl;
+
+    for (i = 0; gTrainerMoneyTable[i].classId != 0xFF; i++)
+    {
+        if (gTrainerMoneyTable[i].classId == trainer->trainerClass)
+            break;
+    }
+
+    for (i = 0; i < MULTI_PARTY_SIZE; i++)
+    {
+        if (sOnlineSelectedOrder[i] != 0
+         && ItemId_GetHoldEffect(GetMonData(&gPlayerParty[sOnlineSelectedOrder[i] - 1], MON_DATA_HELD_ITEM)) == HOLD_EFFECT_DOUBLE_PRIZE)
+            multiplier = 2;
+    }
+
+    money = 4 * lastMonLevel * multiplier * gTrainerMoneyTable[i].value;
+    if (trainer->doubleBattle)
+        money *= 2;
+
+    AddMoney(&gSaveBlock1Ptr->money, money);
+    return money;
+}
+
+// Evolves this player's Pokémon that leveled up, one scene at a time, then
+// returns to the field. The trainer script shows the prize money.
+static void CB2_FinishOnlineBattleWon(void)
+{
+    u32 i;
+
+    for (i = 0; i < PARTY_SIZE; i++)
+    {
+        if (sOnlineLeveledUp & (1u << i))
+        {
+            u16 species;
+
+            sOnlineLeveledUp &= ~(1u << i);
+            species = GetEvolutionTargetSpecies(&gPlayerParty[i], EVO_MODE_NORMAL, ITEM_NONE, NULL);
+            if (species != SPECIES_NONE)
+            {
+                gCB2_AfterEvolution = CB2_FinishOnlineBattleWon;
+                BeginEvolutionScene(&gPlayerParty[i], species, TRUE, i);
+                return;
+            }
+        }
+    }
+
+    // Buffered last, since the evolution scene uses the string vars
+    ConvertIntToDecimalStringN(gStringVar1, sOnlinePrizeMoney, STR_CONV_MODE_LEFT_ALIGN, 7);
+    SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+}
+
 // Puts this player's mons, as they ended the battle, back into their full party
 static void RestorePartyAfterOnlineBattle(void)
 {
@@ -3355,10 +3503,16 @@ static void RestorePartyAfterOnlineBattle(void)
 
     LoadPlayerParty();
 
+    sOnlineLeveledUp = 0;
     for (i = 0; i < MULTI_PARTY_SIZE; i++)
     {
-        if (sOnlineSelectedOrder[i] != 0)
-            gPlayerParty[sOnlineSelectedOrder[i] - 1] = battleMons[i];
+        u32 slot = sOnlineSelectedOrder[i] - 1;
+
+        if (sOnlineSelectedOrder[i] == 0)
+            continue;
+        if (GetMonData(&battleMons[i], MON_DATA_LEVEL) > GetMonData(&gPlayerParty[slot], MON_DATA_LEVEL))
+            sOnlineLeveledUp |= 1u << slot;
+        gPlayerParty[slot] = battleMons[i];
     }
     LogOnlineParty("restored");
 }

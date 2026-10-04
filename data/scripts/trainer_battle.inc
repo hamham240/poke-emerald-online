@@ -139,11 +139,21 @@ EventScript_DoOnlineDoubleBattle::
 	special DoSpecialTrainerBattle
 	waitstate
 
-	@ VAR_RESULT is TRUE if the player cancelled waiting for their partner
-	goto_if_eq VAR_RESULT, TRUE, EventScript_DoTrainerBattle
+	@ VAR_0x8006 is TRUE if the battle was won, with the prize in STR_VAR_1
+	call_if_eq VAR_0x8006, TRUE, EventScript_OnlineBattlePrizeMoney
 
 	@ End the battle
 	goto EventScript_EndTrainerBattle
+
+EventScript_OnlineBattlePrizeMoney::
+	message EventScript_Text_OnlineBattlePrizeMoney
+	waitmessage
+	waitbuttonpress
+	closemessage
+	return
+
+EventScript_Text_OnlineBattlePrizeMoney:
+	.string "{PLAYER} got ¥{STR_VAR_1}\nfor winning!$"
 
 EventScript_DoTrainerBattle::
 	dotrainerbattle
