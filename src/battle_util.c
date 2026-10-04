@@ -47,7 +47,6 @@
 #include "constants/trainers.h"
 #include "constants/weather.h"
 #include "constants/pokemon.h"
-#include "multiplayer.h"
 
 extern struct Evolution gEvolutionTable[][EVOS_PER_MON];
 
@@ -1335,14 +1334,8 @@ void MarkBattlerForControllerExec(u32 battler)
 void MarkBattlerReceivedLinkData(u32 battler)
 {
     s32 i;
-    u8 playerCount;
-    if (ReadConnectedByte()) {
-        playerCount = 2;
-    } else {
-        playerCount = GetLinkPlayerCount();
-    }
 
-    for (i = 0; i < playerCount; i++)
+    for (i = 0; i < GetLinkPlayerCount(); i++)
         gBattleControllerExecFlags |= gBitTable[battler] << (i << 2);
 
     gBattleControllerExecFlags &= ~((1 << 28) << battler);
@@ -1501,10 +1494,7 @@ void PrepareStringBattle(u16 stringId, u32 battler)
         gBattleStruct->trainerSlidePlayerMonUnaffectedMsgState = 1;
 
     BtlController_EmitPrintString(battler, BUFFER_A, stringId);
-    if (ReadConnectedByte())
-        markExecFlag(battler, TASK_NOT_FINISHED);
-    else
-        MarkBattlerForControllerExec(battler);
+    MarkBattlerForControllerExec(battler);
 }
 
 void ResetSentPokesToOpponentValue(void)
@@ -7957,7 +7947,7 @@ void ClearFuryCutterDestinyBondGrudge(u32 battler)
 
 void HandleAction_RunBattleScript(void) // identical to RunBattleScriptCommands
 {
-    if (gBattleControllerExecFlags == 0 || (ReadConnectedByte() && execFlagsAreCleared()))
+    if (gBattleControllerExecFlags == 0)
         gBattleScriptingCommandsTable[*gBattlescriptCurrInstr]();
 }
 

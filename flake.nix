@@ -6,7 +6,7 @@
     flake-utils.url = "github:numtide/flake-utils";
 
     mgba-online = {
-      url = "github:hamham240/mgba-online";
+      url = "github:hamham240/mgba-online/hamham/dev";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-utils.follows = "flake-utils";
     };

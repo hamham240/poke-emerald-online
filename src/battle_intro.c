@@ -10,7 +10,6 @@
 #include "task.h"
 #include "trig.h"
 #include "constants/trainers.h"
-#include "multiplayer.h"
 
 static EWRAM_DATA u16 sBgCnt = 0;
 
@@ -107,18 +106,12 @@ void HandleIntroSlide(u8 terrain)
 {
     u8 taskId;
 
-    if (ReadConnectedByte()) {
-        taskId = CreateTask(BattleIntroSlideLink, 0);
-        terrain = 0;
-    }
-    else if ((gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER) && gPartnerTrainerId != TRAINER_STEVEN_PARTNER && gPartnerTrainerId < TRAINER_CUSTOM_PARTNER)
+    if ((gBattleTypeFlags & BATTLE_TYPE_INGAME_PARTNER) && gPartnerTrainerId != TRAINER_STEVEN_PARTNER && gPartnerTrainerId < TRAINER_CUSTOM_PARTNER)
     {
-        DebugPrintf("Did BattleIntroSlidePartner!");
         taskId = CreateTask(BattleIntroSlidePartner, 0);
     }
     else if (gBattleTypeFlags & BATTLE_TYPE_LINK)
     {
-        DebugPrintf("Did BattleIntroSlideLink!");
         taskId = CreateTask(BattleIntroSlideLink, 0);
     }
     else if (gBattleTypeFlags & BATTLE_TYPE_FRONTIER)

@@ -1820,7 +1820,6 @@ static void Cmd_accuracycheck(void)
 
 static void Cmd_attackstring(void)
 {
-    DebugPrintf("Cmd_attackstring called!");
     CMD_ARGS();
 
     if (gBattleControllerExecFlags)
@@ -1837,7 +1836,6 @@ static void Cmd_attackstring(void)
 
 static void Cmd_ppreduce(void)
 {
-    DebugPrintf("Cmd_ppreduce called!");
     CMD_ARGS();
 
     s32 i, ppToDeduct = 1;
@@ -2144,7 +2142,6 @@ END:
 
 static void Cmd_multihitresultmessage(void)
 {
-    DebugPrintf("Cmd_multihitresultmessage called!");
     CMD_ARGS();
 
     if (gBattleControllerExecFlags)
@@ -2186,7 +2183,6 @@ static void Cmd_multihitresultmessage(void)
 
 static void Cmd_attackanimation(void)
 {
-    DebugPrintf("Cmd_attackanimation called!");
     CMD_ARGS();
 
     u16 moveTarget = GetBattlerMoveTargetType(gBattlerAttacker, gCurrentMove);
@@ -2253,7 +2249,6 @@ static void Cmd_attackanimation(void)
 
 static void Cmd_waitanimation(void)
 {
-    DebugPrintf("Cmd_waitanimation called!");
     CMD_ARGS();
 
     if (gBattleControllerExecFlags == 0)
@@ -2262,7 +2257,6 @@ static void Cmd_waitanimation(void)
 
 static void Cmd_healthbarupdate(void)
 {
-    DebugPrintf("Cmd_healthbarupdate called!");
     CMD_ARGS(u8 battler);
 
     if (gBattleControllerExecFlags)
@@ -2293,7 +2287,6 @@ static void Cmd_healthbarupdate(void)
 
 static void Cmd_datahpupdate(void)
 {
-    DebugPrintf("Cmd_datahpupdate called!");
     CMD_ARGS(u8 battler);
 
     u32 battler, moveType;
@@ -2429,7 +2422,6 @@ static void Cmd_datahpupdate(void)
 
 static void Cmd_critmessage(void)
 {
-    DebugPrintf("Cmd_critmessage called!");
     CMD_ARGS();
 
     if (gBattleControllerExecFlags == 0)
@@ -2450,7 +2442,6 @@ static void Cmd_critmessage(void)
 
 static void Cmd_effectivenesssound(void)
 {
-    DebugPrintf("Cmd_effectivenesssound called!");
     CMD_ARGS();
 
     if (gBattleControllerExecFlags)
@@ -2500,7 +2491,6 @@ static void Cmd_effectivenesssound(void)
 
 static void Cmd_resultmessage(void)
 {
-    DebugPrintf("Cmd_resultmessage called!");
     CMD_ARGS();
 
     u32 stringId = 0;
@@ -2629,7 +2619,6 @@ static void Cmd_resultmessage(void)
 
 static void Cmd_printstring(void)
 {
-    DebugPrintf("Cmd_printstring called!");
     CMD_ARGS(u16 id);
 
     if (gBattleControllerExecFlags == 0)
@@ -2655,7 +2644,6 @@ static void Cmd_printselectionstring(void)
 
 static void Cmd_waitmessage(void)
 {
-    DebugPrintf("Cmd_waitmessage called!");
     CMD_ARGS(u16 time);
 
     if (gBattleControllerExecFlags == 0)
@@ -2679,7 +2667,6 @@ static void Cmd_waitmessage(void)
 
 static void Cmd_printfromtable(void)
 {
-    DebugPrintf("Cmd_printfromtable called!");
     CMD_ARGS(const u16 *ptr);
 
     if (gBattleControllerExecFlags == 0)
@@ -2695,7 +2682,6 @@ static void Cmd_printfromtable(void)
 
 static void Cmd_printselectionstringfromtable(void)
 {
-    DebugPrintf("Cmd_printselectionstringfromtable called!");
     CMD_ARGS(const u16 *ptr);
 
     if (gBattleControllerExecFlags == 0)
@@ -3855,7 +3841,6 @@ static void Cmd_tryfaintmon(void)
 
 static void Cmd_dofaintanimation(void)
 {
-    DebugPrintf("Cmd_dofaintanimation called!");
     CMD_ARGS(u8 battler);
 
     if (gBattleControllerExecFlags == 0)
@@ -3869,7 +3854,6 @@ static void Cmd_dofaintanimation(void)
 
 static void Cmd_cleareffectsonfaint(void)
 {
-    DebugPrintf("Cmd_cleareffectsonfaint called!");
     CMD_ARGS(u8 battler);
 
     if (gBattleControllerExecFlags == 0)
@@ -4056,7 +4040,6 @@ static u32 GetMonHoldEffect(struct Pokemon *mon)
 
 static void Cmd_getexp(void)
 {
-    DebugPrintf("Cmd_getexp called!");
     CMD_ARGS(u8 battler);
 
     u32 holdEffect;
@@ -4445,7 +4428,6 @@ bool32 NoAliveMonsForEitherParty(void)
 // sets gBattleOutcome accordingly, if necessary.
 static void Cmd_checkteamslost(void)
 {
-    DebugPrintf("Cmd_checkteamslost called!");
     CMD_ARGS(const u8 *jumpInstr);
 
     if (gBattleControllerExecFlags)
@@ -4844,7 +4826,6 @@ static void Cmd_bicword(void)
 
 static void Cmd_pause(void)
 {
-    DebugPrintf("Cmd_pause called!");
     CMD_ARGS(u16 frames);
 
     if (gBattleControllerExecFlags == 0)
@@ -4860,7 +4841,6 @@ static void Cmd_pause(void)
 
 static void Cmd_waitstate(void)
 {
-    DebugPrintf("Cmd_waitstate called!");
     CMD_ARGS();
 
     if (gBattleControllerExecFlags == 0)
@@ -6156,7 +6136,6 @@ static void Cmd_returnatktoball(void)
 
 static void Cmd_getswitchedmondata(void)
 {
-    DebugPrintf("Cmd_getswitchedmondata called!");
     CMD_ARGS(u8 battler);
 
     u32 battler = GetBattlerForBattleScript(cmd->battler);
@@ -6173,7 +6152,6 @@ static void Cmd_getswitchedmondata(void)
 
 static void Cmd_switchindataupdate(void)
 {
-    DebugPrintf("Cmd_switchindataupdate called!");
     CMD_ARGS(u8 battler);
 
     struct BattlePokemon oldData;
@@ -6230,7 +6208,6 @@ static void Cmd_switchindataupdate(void)
 
 static void Cmd_switchinanim(void)
 {
-    DebugPrintf("Cmd_switchinanim called!");
     u32 battler;
 
     CMD_ARGS(u8 battler, bool8 dontClearSubstitute);
@@ -6718,7 +6695,6 @@ static void Cmd_openpartyscreen(void)
 
 static void Cmd_switchhandleorder(void)
 {
-    DebugPrintf("Cmd_switchhandleorder called!");
     CMD_ARGS(u8 battler, u8 state);
 
     u32 battler, i;
@@ -7116,7 +7092,6 @@ static void Cmd_handlelearnnewmove(void)
 
 static void Cmd_yesnoboxlearnmove(void)
 {
-    DebugPrintf("Cmd_yesnoboxlearnmove called!");
     CMD_ARGS(const u8 *forgotMovePtr);
 
     switch (gBattleScripting.learnMoveState)
@@ -7335,7 +7310,6 @@ static u32 GetTrainerMoneyToGive(u16 trainerId)
 
 static void Cmd_getmoneyreward(void)
 {
-    DebugPrintf("Cmd_attackstring called!");
     CMD_ARGS();
 
     u32 money;
@@ -7376,7 +7350,6 @@ static void Cmd_getmoneyreward(void)
 // Command is never used
 static void Cmd_updatebattlermoves(void)
 {
-    DebugPrintf("Cmd_updatebattlermoves called!");
     CMD_ARGS(u8 battler);
 
     u32 battler = GetBattlerForBattleScript(cmd->battler);
@@ -7431,7 +7404,6 @@ static void Cmd_incrementgamestat(void)
 
 static void Cmd_drawpartystatussummary(void)
 {
-    DebugPrintf("Cmd_attackstring called!");
     CMD_ARGS(u8 battler);
 
     u32 battler, i;
@@ -7490,7 +7462,6 @@ static void Cmd_jumptocalledmove(void)
 
 static void Cmd_statusanimation(void)
 {
-    DebugPrintf("Cmd_statusanimation called!");
     CMD_ARGS(u8 battler);
 
     if (gBattleControllerExecFlags == 0)
@@ -7509,7 +7480,6 @@ static void Cmd_statusanimation(void)
 
 static void Cmd_status2animation(void)
 {
-    DebugPrintf("Cmd_status2animation called!");
     CMD_ARGS(u8 battler, u32 status2);
 
     if (gBattleControllerExecFlags == 0)
@@ -7529,7 +7499,6 @@ static void Cmd_status2animation(void)
 
 static void Cmd_chosenstatusanimation(void)
 {
-    DebugPrintf("Cmd_chosenstatusanimation called!");
     CMD_ARGS(u8 battler, bool8 isStatus2, u32 status);
 
     if (gBattleControllerExecFlags == 0)
@@ -8022,7 +7991,6 @@ static void Cmd_setatktoplayer0(void)
 
 static void Cmd_makevisible(void)
 {
-    DebugPrintf("Cmd_makevisible called!");
     CMD_ARGS(u8 battler);
     u32 battler;
 
@@ -8506,7 +8474,6 @@ static u32 CalculateBattlerPartyCount(u32 battler)
 
 static void Cmd_various(void)
 {
-    DebugPrintf("Cmd_various called!");
     CMD_ARGS(u8 battler, u8 id);
 
     struct Pokemon *mon;
@@ -10847,7 +10814,6 @@ static void Cmd_setprotectlike(void)
 
 static void Cmd_tryexplosion(void)
 {
-    DebugPrintf("Cmd_tryexplosion called!");
     CMD_ARGS();
 
     u32 dampBattler;
@@ -10871,7 +10837,6 @@ static void Cmd_tryexplosion(void)
 
 static void Cmd_setatkhptozero(void)
 {
-    DebugPrintf("Cmd_setatkhptozero called!");
     CMD_ARGS();
 
     if (gBattleControllerExecFlags)
@@ -12284,7 +12249,6 @@ static void Cmd_tryinfatuating(void)
 
 static void Cmd_updatestatusicon(void)
 {
-    DebugPrintf("Cmd_updatestatusicon called!");
     CMD_ARGS(u8 battler);
     u32 battler;
 
@@ -14891,7 +14855,6 @@ u8 GetCatchingBattler(void)
 
 static void Cmd_handleballthrow(void)
 {
-    DebugPrintf("Cmd_handleballthrow called!");
     CMD_ARGS();
 
     u16 ballMultiplier = 100;

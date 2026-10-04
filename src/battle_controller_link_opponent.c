@@ -27,8 +27,8 @@
 #include "constants/battle_anim.h"
 #include "constants/songs.h"
 #include "constants/trainers.h"
-#include "recorded_battle.h"
 #include "multiplayer.h"
+#include "recorded_battle.h"
 
 static void LinkOpponentHandleLoadMonSprite(u32 battler);
 static void LinkOpponentHandleSwitchInAnim(u32 battler);
@@ -118,22 +118,27 @@ void SetControllerToLinkOpponent(u32 battler)
 
 static void LinkOpponentBufferRunCommand(u32 battler)
 {
-    // TODO: consider repercussions of this when readconnectedbyte() is true but both players are in different fights
-    if (ReadConnectedByte()) {
-        if (getExecFlag(battler) == TASK_NOT_FINISHED) {
-            if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sLinkOpponentBufferCommands))
-                sLinkOpponentBufferCommands[gBattleResources->bufferA[battler][0]](battler);
-            else
-                LinkOpponentBufferExecCompleted(battler);
-        }
-    }
-    else if (gBattleControllerExecFlags & gBitTable[battler])
+    if (gBattleControllerExecFlags & gBitTable[battler])
     {
         if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sLinkOpponentBufferCommands))
             sLinkOpponentBufferCommands[gBattleResources->bufferA[battler][0]](battler);
         else
             LinkOpponentBufferExecCompleted(battler);
     }
+}
+
+// In a 2 vs 1 battle both opposing mons belong to one trainer and are sent out
+// together by the left battler, like a regular double battle.
+static bool32 HasTwoOpponentTrainers(void)
+{
+    return (gBattleTypeFlags & BATTLE_TYPE_MULTI) && !BATTLE_TWO_VS_ONE_OPPONENT;
+}
+
+// Whether this battler's intro also handles its partner's mon. Mirrors
+// the Opponent controller, so a trainer with one mon gets one healthbox.
+static bool32 IntroHandlesPartnerMon(u32 battler)
+{
+    return TwoOpponentIntroMons(battler) && !HasTwoOpponentTrainers();
 }
 
 static void Intro_DelayAndEnd(u32 battler)
@@ -150,7 +155,7 @@ static void Intro_WaitForShinyAnimAndHealthbox(u32 battler)
     bool32 healthboxAnimDone = FALSE;
     bool32 twoMons = FALSE;
 
-    if (!IsDoubleBattle() || (IsDoubleBattle() && (gBattleTypeFlags & BATTLE_TYPE_MULTI)))
+    if (!IntroHandlesPartnerMon(battler))
     {
         if (gSprites[gHealthboxSpriteIds[battler]].callback == SpriteCallbackDummy)
             healthboxAnimDone = TRUE;
@@ -167,7 +172,7 @@ static void Intro_WaitForShinyAnimAndHealthbox(u32 battler)
 
     if (healthboxAnimDone)
     {
-        if (twoMons || !IsBattlerSpriteVisible(BATTLE_PARTNER(battler)))
+        if (twoMons || (HasTwoOpponentTrainers() && !IsBattlerSpriteVisible(BATTLE_PARTNER(battler))))
         {
             if (!gBattleSpritesDataPtr->healthBoxesData[battler].finishedShinyMonAnim)
                 return;
@@ -213,7 +218,7 @@ static void Intro_TryShinyAnimShowHealthbox(u32 battler)
     {
         TryShinyAnimation(battler, &gEnemyParty[gBattlerPartyIndexes[battler]]);
     }
-    if (!(gBattleTypeFlags & BATTLE_TYPE_MULTI)
+    if (IntroHandlesPartnerMon(battler)
         && !gBattleSpritesDataPtr->healthBoxesData[BATTLE_PARTNER(battler)].ballAnimActive
         && !gBattleSpritesDataPtr->healthBoxesData[BATTLE_PARTNER(battler)].triedShinyMonAnim
         && !gBattleSpritesDataPtr->healthBoxesData[BATTLE_PARTNER(battler)].finishedShinyMonAnim)
@@ -225,7 +230,7 @@ static void Intro_TryShinyAnimShowHealthbox(u32 battler)
     {
         if (!gBattleSpritesDataPtr->healthBoxesData[battler].healthboxSlideInStarted)
         {
-            if (IsDoubleBattle() && !(gBattleTypeFlags & BATTLE_TYPE_MULTI))
+            if (IntroHandlesPartnerMon(battler))
             {
                 UpdateHealthboxAttribute(gHealthboxSpriteIds[BATTLE_PARTNER(battler)], &gEnemyParty[gBattlerPartyIndexes[BATTLE_PARTNER(battler)]], HEALTHBOX_ALL);
                 StartHealthboxSlideIn(BATTLE_PARTNER(battler));
@@ -272,7 +277,7 @@ static void Intro_TryShinyAnimShowHealthbox(u32 battler)
                 gBattleSpritesDataPtr->healthBoxesData[battler].introEndDelay = 0;
             }
 
-            if (IsDoubleBattle() && !(gBattleTypeFlags & BATTLE_TYPE_MULTI))
+            if (IntroHandlesPartnerMon(battler))
             {
                 DestroySprite(&gSprites[gBattleControllerData[BATTLE_PARTNER(battler)]]);
                 SetBattlerShadowSpriteCallback(BATTLE_PARTNER(battler), GetMonData(&gEnemyParty[gBattlerPartyIndexes[BATTLE_PARTNER(battler)]], MON_DATA_SPECIES));
@@ -404,7 +409,12 @@ static void LinkOpponentHandleDrawTrainerPic(u32 battler)
     s16 xPos;
     u32 trainerPicId;
 
-    if (gBattleTypeFlags & BATTLE_TYPE_MULTI)
+    if (IsOnlineBattle())
+    {
+        xPos = 176;
+        trainerPicId = gTrainers[gTrainerBattleOpponent_A].trainerPic;
+    }
+    else if (gBattleTypeFlags & BATTLE_TYPE_MULTI)
     {
         if ((GetBattlerPosition(battler) & BIT_FLANK) != 0) // second mon
             xPos = 152;
@@ -480,7 +490,9 @@ static void LinkOpponentHandleTrainerSlide(u32 battler)
 {
     u32 trainerPicId;
 
-    if (battler == B_POSITION_OPPONENT_LEFT)
+    if (IsOnlineBattle())
+        trainerPicId = gTrainers[gTrainerBattleOpponent_A].trainerPic;
+    else if (battler == B_POSITION_OPPONENT_LEFT)
         trainerPicId = GetFrontierTrainerFrontSpriteId(gTrainerBattleOpponent_A);
     else
         trainerPicId = GetFrontierTrainerFrontSpriteId(gTrainerBattleOpponent_B);

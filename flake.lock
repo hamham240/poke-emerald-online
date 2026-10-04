@@ -28,15 +28,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1791134053,
-        "narHash": "sha256-6DB8lu/TbZ6XjR7qhrMUWjEWsiCC7l56utnVAQxjb18=",
+        "lastModified": 1791138035,
+        "narHash": "sha256-AVmKPeg0vIcexwd1RHtEDO4LlviTBweCbkwPFLjFzOo=",
         "owner": "hamham240",
         "repo": "mgba-online",
-        "rev": "67c045413388c82220c8450bdd88ac122bfbfb1b",
+        "rev": "c77598d2a8616660cf9e8de4a0838bc984794596",
         "type": "github"
       },
       "original": {
         "owner": "hamham240",
+        "ref": "hamham/dev",
         "repo": "mgba-online",
         "type": "github"
       }

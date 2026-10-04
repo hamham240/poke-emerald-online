@@ -41,6 +41,9 @@
 #include "trainer_hill.h"
 #include "load_save.h"
 #include "multiplayer.h"
+#include "online_link.h"
+#include "party_menu.h"
+#include "script.h"
 
 extern const u8 MossdeepCity_SpaceCenter_2F_EventScript_MaxieTrainer[];
 extern const u8 MossdeepCity_SpaceCenter_2F_EventScript_TabithaTrainer[];
@@ -85,6 +88,13 @@ static void FillOnlinePartnerParty(void);
 static void SetEReaderTrainerChecksum(struct BattleTowerEReaderTrainer *ereaderTrainer);
 static u8 SetTentPtrsGetLevel(void);
 static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId);
+static void RestorePartyAfterOnlineBattle(void);
+static void LogOnlineParty(const char *label);
+
+// Where this player's chosen mons sit in gPlayerParty during an online battle,
+// and which party slots they came from.
+static EWRAM_DATA u8 sOnlinePartyOffset = 0;
+static EWRAM_DATA u8 sOnlineSelectedOrder[MULTI_PARTY_SIZE] = {0};
 
 
 const u16 gBattleFrontierHeldItems[] =
@@ -2015,10 +2025,13 @@ void HandleSpecialTrainerBattleEnd(void)
         }
         break;
     case SPECIAL_BATTLE_ONLINE_DOUBLE:
-        //TODO: Currently, winning a battle just loads the player's party before the battle
-        //  This disables any progression from winning online double battles
         EnableMonSelectCancel();
-        LoadPlayerParty();
+        RestorePartyAfterOnlineBattle();
+        gSpecialVar_Result = FALSE;
+
+        // 0xFFFF only marked the battle as 2 vs 1; SetBattledTrainersFlags
+        // would otherwise set a flag for it.
+        gTrainerBattleOpponent_B = 0;
 
         avoidReturnToFieldCB = TRUE;
         if (gTrainerBattleOpponent_A == TRAINER_SECRET_BASE)
@@ -2225,15 +2238,14 @@ void DoSpecialTrainerBattle(void)
             gBattleScripting.specialTrainerBattleType = 0xFF;
         break;
     case SPECIAL_BATTLE_ONLINE_DOUBLE:
-        // Indicate what type of battle is about to occur
+        // LINK | INGAME_PARTNER marks an online co-op battle (see IsOnlineBattle).
+        // IS_MASTER is decided during the battle start sequence.
         gBattleTypeFlags = BATTLE_TYPE_TRAINER | BATTLE_TYPE_DOUBLE | BATTLE_TYPE_MULTI | BATTLE_TYPE_INGAME_PARTNER | BATTLE_TYPE_LINK;
 
-        // Nullify the possibility of a second opponent
+        // One trainer sends out two Pokémon against both players (2 vs 1)
         gTrainerBattleOpponent_B = 0xFFFF;
 
-        // Set the Id of the partner in battle
-        // gPartnerTrainerId = TRAINER_STEVEN_PARTNER;
-        // gPartnerTrainerId = TRAINER_PLAYER;
+        // Skips the in-game partner's front-pic intro and partner-only paths
         gPartnerTrainerId = TRAINER_CUSTOM_PARTNER;
 
         CreateTask(Task_WaitForOnlineDoubleBattleConnection, 0);
@@ -2248,14 +2260,16 @@ static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId) {
         ShowFieldMessage(gText_AwaitingLinkup);
     }
 
+    // Cancel: put the party back and let the script fall back to a normal battle
     if (JOY_NEW(B_BUTTON)) {
         HideFieldMessageBox();
-
-        gBattleOutcome = B_OUTCOME_DREW;
-
-        SetMainCallback2(HandleSpecialTrainerBattleEnd);
-
+        gIsWaitingOnOtherPlayer = FALSE;
+        EnableMonSelectCancel();
+        LoadPlayerParty();
+        gSpecialVar_Result = TRUE;
+        ScriptContext_Enable();
         DestroyTask(taskId);
+        return;
     }
 
     gIsWaitingOnOtherPlayer = TRUE;
@@ -2269,10 +2283,16 @@ static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId) {
         gTasks[taskId].data[0] = 1;
     }
 
-    if (ReadConnectedByte() != 0 && GetPeerPacket()->trainerBattleOppA == gTrainerBattleOpponent_A) {
+    if (OnlineLink_IsConnected() && gReceivedRemoteLinkPlayers && GetPeerPacket()->trainerBattleOppA == gTrainerBattleOpponent_A) {
         if (GetPeerPacket()->isWaitingForOtherPlayer == TRUE) {
             // Fill the partner's party
             FillOnlinePartnerParty();
+
+            // The battle start sequence puts the host's mons first, then the joiner's
+            sOnlinePartyOffset = GetMultiplayerId() == 0 ? 0 : MULTI_PARTY_SIZE;
+            memcpy(sOnlineSelectedOrder, gSelectedOrderFromParty, sizeof(sOnlineSelectedOrder));
+            DebugPrintf("Online battle paired: picks=%u,%u,%u offset=%u", sOnlineSelectedOrder[0], sOnlineSelectedOrder[1], sOnlineSelectedOrder[2], sOnlinePartyOffset);
+            LogOnlineParty("paired");
 
             HideFieldMessageBox();
 
@@ -3134,8 +3154,8 @@ static void FillPartnerParty(u16 trainerId)
                 j = Random32();
             } while (IsShinyOtIdPersonality(STEVEN_OTID, j) || sStevenMons[i].nature != GetNatureFromPersonality(j));
             CreateMon(&gPlayerParty[MULTI_PARTY_SIZE + i],
-                      SPECIES_MAGIKARP,
-                      1,
+                      sStevenMons[i].species,
+                      sStevenMons[i].level,
                       sStevenMons[i].fixedIV,
                       TRUE,
                       #ifdef BUGFIX
@@ -3309,6 +3329,38 @@ static void FillOnlinePartnerParty()
     {
         gPlayerParty[MULTI_PARTY_SIZE + i] = pokemons[i];
     }
+}
+
+static void LogOnlineParty(const char *label)
+{
+    u32 i;
+
+    DebugPrintf("Online party (%s): count=%u", label, gPlayerPartyCount);
+    for (i = 0; i < PARTY_SIZE; i++)
+        DebugPrintf("  slot %u: species=%u lv=%u hp=%u", i,
+                    GetMonData(&gPlayerParty[i], MON_DATA_SPECIES),
+                    GetMonData(&gPlayerParty[i], MON_DATA_LEVEL),
+                    GetMonData(&gPlayerParty[i], MON_DATA_HP));
+}
+
+// Puts this player's mons, as they ended the battle, back into their full party
+static void RestorePartyAfterOnlineBattle(void)
+{
+    struct Pokemon battleMons[MULTI_PARTY_SIZE];
+    u32 i;
+
+    LogOnlineParty("battle end");
+    for (i = 0; i < MULTI_PARTY_SIZE; i++)
+        battleMons[i] = gPlayerParty[sOnlinePartyOffset + i];
+
+    LoadPlayerParty();
+
+    for (i = 0; i < MULTI_PARTY_SIZE; i++)
+    {
+        if (sOnlineSelectedOrder[i] != 0)
+            gPlayerParty[sOnlineSelectedOrder[i] - 1] = battleMons[i];
+    }
+    LogOnlineParty("restored");
 }
 
 bool32 RubyBattleTowerRecordToEmerald(struct RSBattleTowerRecord *src, struct EmeraldBattleTowerRecord *dst)

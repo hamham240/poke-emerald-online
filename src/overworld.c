@@ -67,6 +67,7 @@
 #include "constants/trainer_hill.h"
 #include "constants/weather.h"
 #include "multiplayer.h"
+#include "online_link.h"
 
 struct CableClubPlayer
 {
@@ -1498,6 +1499,7 @@ static void OverworldBasic(void)
     //memcpy(((void*)0x10000012), &gTrainerBattleOpponent_A, sizeof(u16));
     TrySpawnMultiplayerAvatar();
     TryMoveMultiplayerSprite();
+    OnlineLink_RunBlockTest();
 
     AnimateSprites();
     CameraUpdate();

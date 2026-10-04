@@ -139,6 +139,9 @@ EventScript_DoOnlineDoubleBattle::
 	special DoSpecialTrainerBattle
 	waitstate
 
+	@ VAR_RESULT is TRUE if the player cancelled waiting for their partner
+	goto_if_eq VAR_RESULT, TRUE, EventScript_DoTrainerBattle
+
 	@ End the battle
 	goto EventScript_EndTrainerBattle
 

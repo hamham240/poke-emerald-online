@@ -28,6 +28,18 @@
 #include "constants/rgb.h"
 #include "constants/trade.h"
 #include "multiplayer.h"
+#include "online_link.h"
+
+#define ONLINE_LINK_PLAYER_COUNT 2
+
+static bool8 Online_SendBlock(const void *src, u16 size);
+static void Online_EnterStandby(void);
+static void Online_ReadyCloseLink(void);
+
+static bool8 sOnlineWasConnected;
+static bool8 sOnlineWaitingForStandby;
+static bool8 sOnlineClosingLink;
+static bool8 sOnlineResendLinkPlayer;
 
 // Window IDs for the link error screens
 enum {
@@ -757,6 +769,8 @@ void ClearLinkCallback_2(void)
 
 u8 GetLinkPlayerCount(void)
 {
+    if (OnlineLink_IsConnected())
+        return ONLINE_LINK_PLAYER_COUNT;
     if (gWirelessCommType)
         return Rfu_GetLinkPlayerCount();
 
@@ -1030,16 +1044,12 @@ static void SendBerryBlenderNoSpaceForPokeblocks(void)
 
 u8 GetMultiplayerId(void)
 {
-    if (ReadConnectedByte()) {
-        return ReadConnectedByte() - 1;
-    }
-    else {
-        if (gWirelessCommType == TRUE) {
-            return Rfu_GetMultiplayerId();
-        }
+    if (OnlineLink_IsConnected())
+        return OnlineLink_GetPlayerId();
+    if (gWirelessCommType == TRUE)
+        return Rfu_GetMultiplayerId();
 
-        return SIO_MULTI_CNT->id;
-    }
+    return SIO_MULTI_CNT->id;
 }
 
 u8 BitmaskAllOtherLinkPlayers(void)
@@ -1052,7 +1062,8 @@ u8 BitmaskAllOtherLinkPlayers(void)
 
 bool8 SendBlock(u8 unused, const void *src, u16 size)
 {
-    DebugPrintf("SendBlock(%u) called!", size);
+    if (OnlineLink_IsConnected())
+        return Online_SendBlock(src, size);
     if (gWirelessCommType == TRUE)
         return Rfu_InitBlockSend(src, size);
 
@@ -1075,6 +1086,10 @@ bool8 SendBlockRequest(u8 blockReqType)
 
 bool8 IsLinkTaskFinished(void)
 {
+    // Also wait for our own echoed block to be consumed, so the next send
+    // can't overwrite it.
+    if (OnlineLink_IsConnected())
+        return !sOnlineWaitingForStandby && !sOnlineClosingLink && OnlineLink_IsSendQueueEmpty() && !gBlockReceivedStatus[GetMultiplayerId()];
     if (gWirelessCommType == TRUE)
         return IsLinkRfuTaskFinished();
 
@@ -1382,11 +1397,15 @@ void ResetLinkPlayerCount(void)
 
 u8 GetLinkPlayerCount_2(void)
 {
+    if (OnlineLink_IsConnected())
+        return ONLINE_LINK_PLAYER_COUNT;
     return EXTRACT_PLAYER_COUNT(gLinkStatus);
 }
 
 bool8 IsLinkMaster(void)
 {
+    if (OnlineLink_IsConnected())
+        return OnlineLink_GetPlayerId() == 0;
     if (gWirelessCommType)
         return Rfu_IsMaster();
 
@@ -1418,6 +1437,11 @@ void SetCloseLinkCallbackAndType(u16 type)
 
 void SetCloseLinkCallback(void)
 {
+    if (OnlineLink_IsConnected())
+    {
+        Online_ReadyCloseLink();
+        return;
+    }
     if (gWirelessCommType == TRUE)
     {
         Rfu_SetCloseLinkCallback();
@@ -1535,6 +1559,11 @@ static void LinkCB_WaitCloseLinkWithJP(void)
 
 void SetLinkStandbyCallback(void)
 {
+    if (OnlineLink_IsConnected())
+    {
+        Online_EnterStandby();
+        return;
+    }
     if (gWirelessCommType == TRUE)
     {
         Rfu_SetLinkStandbyCallback();
@@ -2384,4 +2413,213 @@ void ResetRecvBuffer(void)
                 gLink.recvQueue.data[i][j][k] = LINKCMD_NONE;
         }
     }
+}
+
+// Online link: the vanilla link API (blocks, standby, link players) carried
+// over the mgba-online message pipe instead of the serial cable.
+
+static void Online_ReceiveInto(u32 who, u16 size)
+{
+    void *dest;
+
+    if (size > sizeof(gDecompressionBuffer))
+    {
+        DebugPrintf("Online link: dropping %u byte block from player %u, too large", size, who);
+        OnlineLink_Receive(NULL, 0);
+        return;
+    }
+
+    // Same rule as the cable: blocks larger than the block buffer land in the
+    // decompression buffer.
+    if (size > BLOCK_BUFFER_SIZE)
+        dest = gDecompressionBuffer;
+    else
+        dest = gBlockRecvBuffer[who];
+
+    OnlineLink_Receive(dest, size);
+
+    // The VBlank handler reads gBlockRecvBuffer as soon as the flag is set,
+    // so the copy has to land before the flag does.
+    asm volatile("" ::: "memory");
+    gBlockReceivedStatus[who] = TRUE;
+}
+
+static bool8 Online_SendBlock(const void *src, u16 size)
+{
+    u8 myId = GetMultiplayerId();
+
+    if (!OnlineLink_Send(ONLINE_MSG_BLOCK, src, size))
+        return FALSE;
+
+    // A cable delivers every block to its sender too; callers wait on
+    // GetBlockReceivedStatus() including their own bit.
+    if (size > BLOCK_BUFFER_SIZE)
+        memcpy(gDecompressionBuffer, src, size);
+    else
+        memcpy(gBlockRecvBuffer[myId], src, size);
+    asm volatile("" ::: "memory");
+    gBlockReceivedStatus[myId] = TRUE;
+    return TRUE;
+}
+
+static void Online_SendLinkPlayer(void)
+{
+    u8 myId = GetMultiplayerId();
+
+    InitLocalLinkPlayer();
+    gLocalLinkPlayer.id = myId;
+    gLinkPlayers[myId] = gLocalLinkPlayer;
+    OnlineLink_Send(ONLINE_MSG_LINK_PLAYER, &gLocalLinkPlayer, sizeof(gLocalLinkPlayer));
+}
+
+static void Online_EnterStandby(void)
+{
+    gReadyToExitStandby[GetMultiplayerId()] = TRUE;
+    sOnlineWaitingForStandby = TRUE;
+    OnlineLink_Send(ONLINE_MSG_STANDBY, NULL, 0);
+}
+
+static void Online_UpdateStandby(void)
+{
+    u32 i;
+
+    if (!sOnlineWaitingForStandby)
+        return;
+
+    for (i = 0; i < ONLINE_LINK_PLAYER_COUNT; i++)
+    {
+        if (!gReadyToExitStandby[i])
+            return;
+    }
+
+    for (i = 0; i < MAX_LINK_PLAYERS; i++)
+        gReadyToExitStandby[i] = FALSE;
+    sOnlineWaitingForStandby = FALSE;
+}
+
+// The cable version tells every player it is done, waits for all of them, then
+// shuts the link down. Online, the connection stays up; "closing" only clears
+// gReceivedRemoteLinkPlayers (which is what callers wait on) and the link
+// players are exchanged again for the next link activity.
+static void Online_ReadyCloseLink(void)
+{
+    if (sOnlineClosingLink)
+        return;
+
+    gReadyToCloseLink[GetMultiplayerId()] = TRUE;
+    sOnlineClosingLink = TRUE;
+    OnlineLink_Send(ONLINE_MSG_CLOSE_LINK, NULL, 0);
+}
+
+static bool32 Online_TryFinishCloseLink(void)
+{
+    u32 i;
+
+    if (!sOnlineClosingLink)
+        return FALSE;
+
+    for (i = 0; i < ONLINE_LINK_PLAYER_COUNT; i++)
+    {
+        if (!gReadyToCloseLink[i])
+            return FALSE;
+    }
+
+    for (i = 0; i < MAX_LINK_PLAYERS; i++)
+        gReadyToCloseLink[i] = FALSE;
+    sOnlineClosingLink = FALSE;
+    gBattleTypeFlags &= ~BATTLE_TYPE_LINK_IN_BATTLE;
+    gReceivedRemoteLinkPlayers = FALSE;
+    sOnlineResendLinkPlayer = TRUE;
+    return TRUE;
+}
+
+static void Online_Reset(void)
+{
+    u32 i;
+
+    for (i = 0; i < MAX_LINK_PLAYERS; i++)
+    {
+        gBlockReceivedStatus[i] = FALSE;
+        gReadyToExitStandby[i] = FALSE;
+        gReadyToCloseLink[i] = FALSE;
+    }
+    sOnlineWaitingForStandby = FALSE;
+    sOnlineClosingLink = FALSE;
+    sOnlineResendLinkPlayer = FALSE;
+    gReceivedRemoteLinkPlayers = FALSE;
+}
+
+// Called once per frame from the main loop, in place of HandleLinkConnection.
+void Online_UpdateLink(void)
+{
+    u8 peerId;
+    u8 type;
+
+    if (!OnlineLink_IsConnected())
+    {
+        if (sOnlineWasConnected)
+        {
+            DebugPrintf("Online link: disconnected");
+            Online_Reset();
+            sOnlineWasConnected = FALSE;
+        }
+        return;
+    }
+
+    if (!sOnlineWasConnected)
+    {
+        DebugPrintf("Online link: connected as player %u", GetMultiplayerId());
+        Online_Reset();
+        Online_SendLinkPlayer();
+        sOnlineWasConnected = TRUE;
+    }
+
+    // Sent a frame after the link closes, so whatever is waiting for
+    // gReceivedRemoteLinkPlayers to clear gets to see it.
+    if (sOnlineResendLinkPlayer)
+    {
+        Online_SendLinkPlayer();
+        sOnlineResendLinkPlayer = FALSE;
+    }
+
+    peerId = GetMultiplayerId() ^ 1;
+
+    while ((type = OnlineLink_PeekType()) != ONLINE_MSG_NONE)
+    {
+        switch (type)
+        {
+        case ONLINE_MSG_LINK_PLAYER:
+            OnlineLink_Receive(&gLinkPlayers[peerId], sizeof(gLinkPlayers[peerId]));
+            gLinkPlayers[peerId].id = peerId;
+            gReceivedRemoteLinkPlayers = TRUE;
+            DebugPrintf("Online link: received link player %u", peerId);
+            break;
+        case ONLINE_MSG_BLOCK:
+            // Keep blocks in order: wait until the previous one from this
+            // player has been consumed.
+            if (gBlockReceivedStatus[peerId])
+                goto done;
+            Online_ReceiveInto(peerId, OnlineLink_PeekSize());
+            break;
+        case ONLINE_MSG_STANDBY:
+            OnlineLink_Receive(NULL, 0);
+            gReadyToExitStandby[peerId] = TRUE;
+            break;
+        case ONLINE_MSG_CLOSE_LINK:
+            OnlineLink_Receive(NULL, 0);
+            gReadyToCloseLink[peerId] = TRUE;
+            // Stop here so the link reads as closed for at least one frame
+            // before the peer's next link player message reopens it.
+            if (Online_TryFinishCloseLink())
+                goto done;
+            break;
+        default:
+            DebugPrintf("Online link: dropping message with unknown type %u", type);
+            OnlineLink_Receive(NULL, 0);
+            break;
+        }
+    }
+    Online_TryFinishCloseLink();
+done:
+    Online_UpdateStandby();
 }

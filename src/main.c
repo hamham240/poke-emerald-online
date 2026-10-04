@@ -3,6 +3,7 @@
 #include "malloc.h"
 #include "link.h"
 #include "multiplayer.h"
+#include "online_link.h"
 #include "link_rfu.h"
 #include "librfu.h"
 #include "m4a.h"
@@ -181,12 +182,9 @@ void AgbMainLoop(void)
 
 static void UpdateLinkAndCallCallbacks(void)
 {
-    if (ReadConnectedByte()) {
+    Online_UpdateLink();
+    if (OnlineLink_IsConnected() || !HandleLinkConnection())
         CallCallbacks();
-    }
-    else if (!HandleLinkConnection()) {
-        CallCallbacks();
-    }
 }
 
 static void InitMainCallbacks(void)

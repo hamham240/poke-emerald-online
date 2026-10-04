@@ -28,7 +28,6 @@
 #include "constants/songs.h"
 #include "constants/trainers.h"
 #include "recorded_battle.h"
-#include "multiplayer.h"
 
 static void LinkPartnerHandleLoadMonSprite(u32 battler);
 static void LinkPartnerHandleSwitchInAnim(u32 battler);
@@ -117,23 +116,13 @@ void SetControllerToLinkPartner(u32 battler)
 
 static void LinkPartnerBufferRunCommand(u32 battler)
 {
-    if (ReadConnectedByte()) {
-        if (getExecFlag(battler) == TASK_NOT_FINISHED) {
-            if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sLinkPartnerBufferCommands))
-                sLinkPartnerBufferCommands[gBattleResources->bufferA[battler][0]](battler);
-            else
-                LinkPartnerBufferExecCompleted(battler);
-        }
-    } else {
-        if (!ReadConnectedByte() && gBattleControllerExecFlags & gBitTable[battler])
-        {
-            if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sLinkPartnerBufferCommands))
-                sLinkPartnerBufferCommands[gBattleResources->bufferA[battler][0]](battler);
-            else
-                LinkPartnerBufferExecCompleted(battler);
-        }
+    if (gBattleControllerExecFlags & gBitTable[battler])
+    {
+        if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sLinkPartnerBufferCommands))
+            sLinkPartnerBufferCommands[gBattleResources->bufferA[battler][0]](battler);
+        else
+            LinkPartnerBufferExecCompleted(battler);
     }
-    
 }
 
 static void WaitForMonAnimAfterLoad(u32 battler)
@@ -202,9 +191,6 @@ static void SwitchIn_TryShinyAnim(u32 battler)
 
 static void LinkPartnerBufferExecCompleted(u32 battler)
 {
-    while (!hasPeerReceivedLatestPacket()) {
-        continue;
-    }
     gBattlerControllerFuncs[battler] = LinkPartnerBufferRunCommand;
     if (gBattleTypeFlags & BATTLE_TYPE_LINK)
     {
