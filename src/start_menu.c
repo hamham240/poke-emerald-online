@@ -834,6 +834,7 @@ static u8 ShowOnlinePlayersWindow(void)
     u32 i, y;
     u32 numPlayers = 0;
 
+    Online_RestoreLinkPlayers();
     if (gReceivedRemoteLinkPlayers)
     {
         for (i = 0; i < GetLinkPlayerCount(); i++)

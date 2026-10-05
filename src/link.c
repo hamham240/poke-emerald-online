@@ -42,6 +42,7 @@ static bool8 sOnlineWasConnected;
 static bool8 sOnlineWaitingForStandby;
 static bool8 sOnlineClosingLink;
 static bool8 sOnlineResendLinkPlayer;
+static u8 sOnlineLinkPlayerRequestTimer;
 static u16 sOnlinePeerReadyTrainer;
 static u16 sOnlinePeerCommittedTrainer;
 
@@ -343,7 +344,10 @@ void SetLocalLinkPlayerId(u8 playerId)
 static void InitLocalLinkPlayer(void)
 {
     gLocalLinkPlayer.trainerId = gSaveBlock2Ptr->playerTrainerId[0] | (gSaveBlock2Ptr->playerTrainerId[1] << 8) | (gSaveBlock2Ptr->playerTrainerId[2] << 16) | (gSaveBlock2Ptr->playerTrainerId[3] << 24);
-    StringCopy(gLocalLinkPlayer.name, gSaveBlock2Ptr->playerName);
+    // Bounded: before a save is loaded (e.g. linking online at the title
+    // screen) the name is all zeros, with no EOS to stop at
+    StringCopyN(gLocalLinkPlayer.name, gSaveBlock2Ptr->playerName, PLAYER_NAME_LENGTH);
+    gLocalLinkPlayer.name[PLAYER_NAME_LENGTH] = EOS;
     gLocalLinkPlayer.gender = gSaveBlock2Ptr->playerGender;
     gLocalLinkPlayer.linkType = gLinkType;
     gLocalLinkPlayer.language = gGameLanguage;
@@ -2480,9 +2484,46 @@ static bool8 Online_SendBlock(const void *src, u16 size)
     return TRUE;
 }
 
+// The partner's link player info as received. Vanilla code that runs between
+// receiving it and using it can overwrite gLinkPlayers (seen when linking at
+// the title screen), and battles rearrange it, so online activities restore
+// it from here (Online_RestoreLinkPlayers).
+static EWRAM_DATA struct LinkPlayer sOnlinePeerLinkPlayer = {0};
+
+// The trainer info last sent to the partner, to resend it when it changes
+static EWRAM_DATA u8 sOnlineSentName[PLAYER_NAME_LENGTH] = {0};
+static EWRAM_DATA u8 sOnlineSentTrainerId[TRAINER_ID_LENGTH] = {0};
+static EWRAM_DATA u8 sOnlineSentGender = 0;
+
+static bool32 Online_HasTrainerInfoChanged(void)
+{
+    return memcmp(sOnlineSentName, gSaveBlock2Ptr->playerName, sizeof(sOnlineSentName)) != 0
+        || memcmp(sOnlineSentTrainerId, gSaveBlock2Ptr->playerTrainerId, sizeof(sOnlineSentTrainerId)) != 0
+        || sOnlineSentGender != gSaveBlock2Ptr->playerGender;
+}
+
+// Puts both players' info back in gLinkPlayers for an online activity
+void Online_RestoreLinkPlayers(void)
+{
+    u8 myId = GetMultiplayerId();
+
+    if (!OnlineLink_IsConnected())
+        return;
+
+    InitLocalLinkPlayer();
+    gLocalLinkPlayer.id = myId;
+    gLinkPlayers[myId] = gLocalLinkPlayer;
+    gLinkPlayers[myId ^ 1] = sOnlinePeerLinkPlayer;
+    gLinkPlayers[myId ^ 1].id = myId ^ 1;
+}
+
 static void Online_SendLinkPlayer(void)
 {
     u8 myId = GetMultiplayerId();
+
+    memcpy(sOnlineSentName, gSaveBlock2Ptr->playerName, sizeof(sOnlineSentName));
+    memcpy(sOnlineSentTrainerId, gSaveBlock2Ptr->playerTrainerId, sizeof(sOnlineSentTrainerId));
+    sOnlineSentGender = gSaveBlock2Ptr->playerGender;
 
     InitLocalLinkPlayer();
     gLocalLinkPlayer.id = myId;
@@ -2605,7 +2646,21 @@ static void Online_Reset(void)
     sOnlineWaitingForStandby = FALSE;
     sOnlineClosingLink = FALSE;
     sOnlineResendLinkPlayer = FALSE;
+    sOnlineLinkPlayerRequestTimer = 0;
     gReceivedRemoteLinkPlayers = FALSE;
+
+    // The partner's info is unknown until they send it. Never leave a name
+    // without its EOS for the screens that show it.
+    for (i = 0; i < MAX_LINK_PLAYERS; i++)
+    {
+        if (i == GetMultiplayerId())
+            continue;
+        memset(&gLinkPlayers[i], 0, sizeof(gLinkPlayers[i]));
+        gLinkPlayers[i].name[0] = EOS;
+    }
+    memset(&sOnlinePeerLinkPlayer, 0, sizeof(sOnlinePeerLinkPlayer));
+    sOnlinePeerLinkPlayer.name[0] = EOS;
+
     OnlinePair_ClearPeer();
     Multiplayer_OnLinkReset();
     OnlineInteract_OnDisconnect();
@@ -2633,12 +2688,32 @@ void Online_UpdateLink(void)
         DebugPrintf("Online link: connected as player %u", GetMultiplayerId());
         Online_Reset();
         Online_SendLinkPlayer();
+        OnlineLink_Send(ONLINE_MSG_LINK_PLAYER_REQUEST, NULL, 0);
         sOnlineWasConnected = TRUE;
     }
 
+    // Without the partner's info (e.g. this game restarted while the link
+    // stayed up, so the partner never saw a new connection), ask for it.
+    // Not while a link close is in progress, which waits for the partner to
+    // resend it on its own.
+    if (!gReceivedRemoteLinkPlayers && !sOnlineClosingLink && !sOnlineResendLinkPlayer)
+    {
+        if (++sOnlineLinkPlayerRequestTimer >= 60)
+        {
+            OnlineLink_Send(ONLINE_MSG_LINK_PLAYER_REQUEST, NULL, 0);
+            sOnlineLinkPlayerRequestTimer = 0;
+        }
+    }
+    else
+    {
+        sOnlineLinkPlayerRequestTimer = 0;
+    }
+
     // Sent a frame after the link closes, so whatever is waiting for
-    // gReceivedRemoteLinkPlayers to clear gets to see it.
-    if (sOnlineResendLinkPlayer)
+    // gReceivedRemoteLinkPlayers to clear gets to see it. Also resent when
+    // the trainer info changes: linking at the title screen sends a blank
+    // save's, which loading a save or starting a new game replaces.
+    if (sOnlineResendLinkPlayer || (!sOnlineClosingLink && Online_HasTrainerInfoChanged()))
     {
         Online_SendLinkPlayer();
         sOnlineResendLinkPlayer = FALSE;
@@ -2653,6 +2728,8 @@ void Online_UpdateLink(void)
         case ONLINE_MSG_LINK_PLAYER:
             OnlineLink_Receive(&gLinkPlayers[peerId], sizeof(gLinkPlayers[peerId]));
             gLinkPlayers[peerId].id = peerId;
+            gLinkPlayers[peerId].name[PLAYER_NAME_LENGTH] = EOS;
+            sOnlinePeerLinkPlayer = gLinkPlayers[peerId];
             gReceivedRemoteLinkPlayers = TRUE;
             // Sent when the partner (re)connects, e.g. after a soft reset, and
             // after each link battle. Any pairing or request they had is gone.
@@ -2680,6 +2757,12 @@ void Online_UpdateLink(void)
             Online_HandlePairMessage(type, trainerId);
             break;
         }
+        case ONLINE_MSG_LINK_PLAYER_REQUEST:
+            OnlineLink_Receive(NULL, 0);
+            // A close in progress resends it once done
+            if (!sOnlineClosingLink)
+                Online_SendLinkPlayer();
+            break;
         case ONLINE_MSG_AVATAR_STATE:
             Multiplayer_ReceiveAvatarState();
             break;

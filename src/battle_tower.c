@@ -2315,6 +2315,7 @@ void OnlineBattle_ReceivePartnerParty(void)
 static void StartOnlineBattle(u8 taskId)
 {
     OnlinePair_ClearPeer();
+    Online_RestoreLinkPlayers();
 
     // For the team preview. The partner sent their picks before committing, and
     // messages arrive in order, so these are the ones for this battle.

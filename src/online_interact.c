@@ -209,6 +209,8 @@ void OnlineInteract_BufferPartnerName(void)
 {
     u8 peerId = GetMultiplayerId() ^ 1;
 
+    Online_RestoreLinkPlayers();
+
     StringCopyN(gStringVar1, gLinkPlayers[peerId].name, PLAYER_NAME_LENGTH);
     gStringVar1[PLAYER_NAME_LENGTH] = EOS;
 }
@@ -377,6 +379,7 @@ static void Task_StartOnlineDuel(u8 taskId)
 // Run by both players once the handshake says go (use waitstate)
 void OnlineDuel_Start(void)
 {
+    Online_RestoreLinkPlayers();
     SavePlayerParty();
     sIsOnlineDuel = TRUE;
     gLinkType = LINKTYPE_BATTLE;
@@ -417,6 +420,7 @@ static void Task_StartOnlineTrade(u8 taskId)
 // Run by both players once the handshake says go (use waitstate)
 void OnlineTrade_Start(void)
 {
+    Online_RestoreLinkPlayers();
     sIsOnlineTrade = TRUE;
     gLinkType = LINKTYPE_TRADE_SETUP;
     gSelectedTradeMonPositions[TRADE_PLAYER] = 0;

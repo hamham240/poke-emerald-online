@@ -38,6 +38,7 @@ enum
     ONLINE_MSG_INTERACT,
     ONLINE_MSG_PARTNER_PARTY,
     ONLINE_MSG_TRADE_PARTY,
+    ONLINE_MSG_LINK_PLAYER_REQUEST,
 };
 
 bool32 OnlineLink_IsConnected(void);
@@ -54,6 +55,9 @@ void OnlinePair_Send(u8 type, u16 trainerId);
 u16 OnlinePair_GetPeerReady(void);
 u16 OnlinePair_GetPeerCommitted(void);
 void OnlinePair_ClearPeer(void);
+
+// Puts both players' info back in gLinkPlayers (implemented in link.c)
+void Online_RestoreLinkPlayers(void);
 
 // The picks a player brings to an online co-op battle (implemented in battle_tower.c)
 void OnlineBattle_ReceivePartnerParty(void);
