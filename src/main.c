@@ -2,8 +2,8 @@
 #include "crt0.h"
 #include "malloc.h"
 #include "link.h"
-#include "multiplayer.h"
 #include "online_link.h"
+#include "online_session.h"
 #include "link_rfu.h"
 #include "librfu.h"
 #include "m4a.h"
@@ -116,8 +116,7 @@ void AgbMain()
     ResetBgs();
     SetDefaultFontsPointer();
     InitHeap(gHeap, HEAP_SIZE);
-    InitMultiplayerAvatarIds();
-    InitMultiplayerData();
+    Online_Init();
 
     gSoftResetDisabled = FALSE;
 

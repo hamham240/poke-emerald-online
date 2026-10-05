@@ -1,27 +1,16 @@
 #include "global.h"
-#include "battle.h"
-#include "battle_setup.h"
-#include "battle_transition.h"
 #include "characters.h"
 #include "event_data.h"
-#include "event_scripts.h"
-#include "field_screen_effect.h"
-#include "field_weather.h"
 #include "link.h"
-#include "load_save.h"
 #include "main.h"
 #include "online_interact.h"
 #include "online_link.h"
+#include "online_session.h"
+#include "online_trade.h"
 #include "overworld.h"
-#include "palette.h"
-#include "pokemon.h"
 #include "script.h"
-#include "sound.h"
 #include "string_util.h"
 #include "task.h"
-#include "trade.h"
-#include "constants/songs.h"
-#include "constants/trainers.h"
 
 // Lets one online player ask the other to battle or trade, by pressing A on
 // their avatar. The handshake over ONLINE_MSG_INTERACT:
@@ -71,9 +60,6 @@ static EWRAM_DATA u8 sKind = ONLINE_INTERACT_NONE;
 static EWRAM_DATA u8 sIncomingKind = ONLINE_INTERACT_NONE; // A request the player hasn't seen yet
 static EWRAM_DATA bool8 sIncomingCancelled = FALSE;
 static EWRAM_DATA bool8 sIncomingShown = FALSE;
-static EWRAM_DATA bool8 sIsOnlineDuel = FALSE;
-static EWRAM_DATA bool8 sIsOnlineTrade = FALSE;
-static EWRAM_DATA bool8 sLinkLost = FALSE;
 
 static void Send(u8 op, u8 kind)
 {
@@ -89,7 +75,7 @@ static void Go(void)
 {
     sState = INTERACT_STATE_GO;
     if (sKind == ONLINE_INTERACT_TRADE)
-        sIsOnlineTrade = TRUE;
+        OnlineTrade_Prepare();
 }
 
 static void ClearIncomingRequest(void)
@@ -184,7 +170,7 @@ void OnlineInteract_OnLinkReset(void)
 void OnlineInteract_OnDisconnect(void)
 {
     OnlineInteract_OnLinkReset();
-    sIsOnlineTrade = FALSE;
+    OnlineTrade_End();
 }
 
 // Called from ProcessPlayerFieldInput, so the prompt only interrupts a player
@@ -322,109 +308,4 @@ void OnlineInteract_Accept(void)
         Send(INTERACT_OP_ACCEPT, kind);
         sState = INTERACT_STATE_ACCEPTED;
     }
-}
-
-// Losing the link mid-activity
-//
-// A co-op battle, duel or trade can't go on once the partner's game is gone.
-// They end early and return to the field (see TryAbortDisconnectedOnlineBattle
-// and TryAbortDisconnectedOnlineTrade), noting it here for the script to tell
-// the player.
-
-void Online_SetLinkLost(void)
-{
-    sLinkLost = TRUE;
-}
-
-bool32 Online_WasLinkLost(void)
-{
-    return sLinkLost;
-}
-
-// VAR_RESULT = whether the last online activity ended because the link was lost
-void Online_CheckLinkLost(void)
-{
-    gSpecialVar_Result = sLinkLost;
-    sLinkLost = FALSE;
-}
-
-// Duels
-//
-// A plain link single battle against the partner's whole party, as in the
-// Colosseum. Link battles give no EXP or prize money; the party is restored
-// afterwards, so the battle leaves no trace on either team.
-
-bool32 IsOnlineDuel(void)
-{
-    return sIsOnlineDuel;
-}
-
-static void CB2_EndOnlineDuel(void)
-{
-    LoadPlayerParty();
-    sIsOnlineDuel = FALSE;
-    SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
-}
-
-static void Task_StartOnlineDuel(u8 taskId)
-{
-    if (IsBattleTransitionDone() == TRUE)
-    {
-        gMain.savedCallback = CB2_EndOnlineDuel;
-        SetMainCallback2(CB2_InitBattle);
-        DestroyTask(taskId);
-    }
-}
-
-// Run by both players once the handshake says go (use waitstate)
-void OnlineDuel_Start(void)
-{
-    Online_RestoreLinkPlayers();
-    SavePlayerParty();
-    sIsOnlineDuel = TRUE;
-    gLinkType = LINKTYPE_BATTLE;
-    gBattleTypeFlags = BATTLE_TYPE_LINK | BATTLE_TYPE_TRAINER;
-    gTrainerBattleOpponent_A = TRAINER_LINK_OPPONENT;
-
-    CreateTask(Task_StartOnlineDuel, 1);
-    PlayMapChosenOrBattleBGM(MUS_VS_TRAINER);
-    BattleTransition_StartOnField(B_TRANSITION_BLACKHOLE_PULSATE);
-}
-
-// Trades
-//
-// The Trade Center's trade menu, run over the online link (see trade.c). It
-// returns to the field once both players leave the menu; each trade in between
-// saves both games, as in vanilla.
-
-bool32 IsOnlineTrade(void)
-{
-    return sIsOnlineTrade;
-}
-
-void OnlineTrade_End(void)
-{
-    sIsOnlineTrade = FALSE;
-}
-
-static void Task_StartOnlineTrade(u8 taskId)
-{
-    if (!gPaletteFade.active)
-    {
-        CleanupOverworldWindowsAndTilemaps();
-        SetMainCallback2(CB2_StartCreateTradeMenu);
-        DestroyTask(taskId);
-    }
-}
-
-// Run by both players once the handshake says go (use waitstate)
-void OnlineTrade_Start(void)
-{
-    Online_RestoreLinkPlayers();
-    sIsOnlineTrade = TRUE;
-    gLinkType = LINKTYPE_TRADE_SETUP;
-    gSelectedTradeMonPositions[TRADE_PLAYER] = 0;
-    gSelectedTradeMonPositions[TRADE_PARTNER] = 0;
-    FadeScreen(FADE_TO_BLACK, 0);
-    CreateTask(Task_StartOnlineTrade, 80);
 }

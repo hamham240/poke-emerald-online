@@ -21,8 +21,8 @@
 #include "main.h"
 #include "mystery_gift.h"
 #include "mystery_gift_menu.h"
-#include "online_interact.h"
 #include "online_link.h"
+#include "online_trade.h"
 #include "overworld.h"
 #include "palette.h"
 #include "party_menu.h"
@@ -323,15 +323,12 @@ static void CB2_SaveAndEndWirelessTrade(void);
 #include "data/trade.h"
 
 // The online partner's game is gone mid-trade: back to the field. inMenu says
-// whether the trade menu (rather than the trade animation and save) is up. A
-// trade whose save didn't finish stays in memory only, as when a cable is
-// pulled; the save is only valid once both games have written it.
+// whether the trade menu (rather than the trade animation and save) is up.
 static bool32 TryAbortDisconnectedOnlineTrade(bool32 inMenu)
 {
     if (!IsOnlineTrade() || OnlineLink_IsConnected())
         return FALSE;
 
-    DebugPrintf("Online trade: link lost, leaving the trade");
     SetHBlankCallback(NULL);
     SetVBlankCallback(NULL);
     ResetTasks();
@@ -350,12 +347,7 @@ static bool32 TryAbortDisconnectedOnlineTrade(bool32 inMenu)
         FreeMonSpritesGfx();
         FREE_AND_SET_NULL(sTradeAnim);
     }
-
-    gSoftResetDisabled = FALSE;
-    SetMainCallback1(CB1_Overworld);
-    OnlineTrade_End();
-    Online_SetLinkLost();
-    SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+    OnlineTrade_Abort();
     return TRUE;
 }
 
@@ -1091,48 +1083,6 @@ static void Trade_Memcpy(void *dest, const void *src, u32 size)
         _dest[i] = _src[i];
 }
 
-// Everything BufferTradeParties exchanges, as one online message
-struct OnlineTradeParty
-{
-    struct Pokemon party[PARTY_SIZE];
-    struct Mail mail[PARTY_SIZE];
-    u8 giftRibbons[GIFT_RIBBONS_COUNT];
-};
-
-// Online, the parties are swapped in one message each way. The block requests
-// the cable trade uses rely on both players running in step: the partner's
-// block can arrive before the menu is ready for it and be cleared.
-static void BufferTradePartiesOnline(void)
-{
-    struct OnlineTradeParty *data;
-
-    switch (sTradeMenu->bufferPartyState)
-    {
-    case 0:
-        data = AllocZeroed(sizeof(*data));
-        memcpy(data->party, gPlayerParty, sizeof(data->party));
-        memcpy(data->mail, gSaveBlock1Ptr->mail, sizeof(data->mail));
-        memcpy(data->giftRibbons, gSaveBlock1Ptr->giftRibbons, sizeof(data->giftRibbons));
-        if (OnlineLink_Send(ONLINE_MSG_TRADE_PARTY, data, sizeof(*data)))
-            sTradeMenu->bufferPartyState++;
-        Free(data);
-        break;
-    case 1:
-        // Left at the front of the inbox by Online_UpdateLink
-        if (OnlineLink_PeekType() == ONLINE_MSG_TRADE_PARTY)
-        {
-            data = AllocZeroed(sizeof(*data));
-            OnlineLink_Receive(data, sizeof(*data));
-            memcpy(gEnemyParty, data->party, sizeof(data->party));
-            memcpy(gTradeMail, data->mail, sizeof(data->mail));
-            memcpy(sTradeMenu->giftRibbons, data->giftRibbons, sizeof(sTradeMenu->giftRibbons));
-            Free(data);
-            sTradeMenu->bufferPartyState = 21; // Shared with the cable trade from here
-        }
-        break;
-    }
-}
-
 static bool8 BufferTradeParties(void)
 {
     u8 id = GetMultiplayerId();
@@ -1141,7 +1091,9 @@ static bool8 BufferTradeParties(void)
 
     if (OnlineLink_IsConnected() && sTradeMenu->bufferPartyState < 21)
     {
-        BufferTradePartiesOnline();
+        // Shared with the cable trade from state 21
+        if (OnlineTrade_BufferParties(&sTradeMenu->bufferPartyState, sTradeMenu->giftRibbons))
+            sTradeMenu->bufferPartyState = 21;
         return FALSE;
     }
 
@@ -1862,18 +1814,9 @@ static void CB_ExitCanceledTrade(void)
             Free(sTradeMenu);
             FreeAllWindowBuffers();
             if (IsOnlineTrade())
-            {
-                // Back to where the player was standing, to finish the script
-                // that started the trade. The trade menu replaced the overworld's
-                // callback1, which handles the player's input.
-                SetMainCallback1(CB1_Overworld);
-                OnlineTrade_End();
-                SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
-            }
+                OnlineTrade_ReturnToField();
             else
-            {
                 SetMainCallback2(CB2_ReturnToFieldFromMultiplayer);
-            }
         }
     }
 }
@@ -4840,17 +4783,10 @@ static void CB2_SaveAndEndTrade(void)
         if (gWirelessCommType)
             MysteryGift_TryIncrementStat(CARD_STAT_NUM_TRADES, gLinkPlayers[GetMultiplayerId() ^ 1].trainerId);
 
-        // Continuing the save puts the player back where they traded. The cable
-        // trade goes to the dynamic warp, set on entering the Cable Club.
         if (IsOnlineTrade())
-        {
-            SetContinueGameWarp(gSaveBlock1Ptr->location.mapGroup, gSaveBlock1Ptr->location.mapNum, WARP_ID_NONE, gSaveBlock1Ptr->pos.x, gSaveBlock1Ptr->pos.y);
-            SetContinueGameWarpStatus();
-        }
+            OnlineTrade_SetContinueGameWarp();
         else
-        {
             SetContinueGameWarpStatusToDynamicWarp();
-        }
         LinkFullSave_Init();
         gMain.state++;
         sTradeAnim->timer = 0;

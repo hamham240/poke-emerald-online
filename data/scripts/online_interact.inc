@@ -1,7 +1,7 @@
 @ Pressing A on the online partner's avatar (see src/online_interact.c)
 EventScript_OnlinePlayerInteract::
 	lockall
-	special OnlineInteract_BufferPartnerName
+	callnative OnlineInteract_BufferPartnerName
 	message EventScript_Text_OnlineInteractWhat
 	waitmessage
 	multichoice 0, 0, MULTI_ONLINE_INTERACT, FALSE
@@ -23,14 +23,14 @@ EventScript_OnlineRequestTrade::
 EventScript_OnlineSendRequest::
 	message EventScript_Text_OnlineWaitingForAnswer
 	waitmessage
-	special OnlineInteract_SendRequest
+	callnative OnlineInteract_SendRequest
 	waitstate
 	goto EventScript_OnlineInteractResult
 
 @ Shown to the partner, once they're free to act
 EventScript_OnlineInteractRequested::
 	lockall
-	special OnlineInteract_BufferIncomingRequest
+	callnative OnlineInteract_BufferIncomingRequest
 	goto_if_eq VAR_0x8004, ONLINE_INTERACT_TRADE, EventScript_OnlineAskTrade
 	msgbox EventScript_Text_OnlineDuelRequested, MSGBOX_YESNO
 	goto EventScript_OnlineAnswerRequest
@@ -39,16 +39,16 @@ EventScript_OnlineAskTrade::
 	msgbox EventScript_Text_OnlineTradeRequested, MSGBOX_YESNO
 EventScript_OnlineAnswerRequest::
 	goto_if_eq VAR_RESULT, NO, EventScript_OnlineDeclineRequest
-	special OnlineInteract_Accept
+	callnative OnlineInteract_Accept
 	goto_if_eq VAR_RESULT, FALSE, EventScript_OnlineRequestWithdrawn
 	message EventScript_Text_OnlineWaitingForPartner
 	waitmessage
-	special OnlineInteract_WaitForPartner
+	callnative OnlineInteract_WaitForPartner
 	waitstate
 	goto EventScript_OnlineInteractResult
 
 EventScript_OnlineDeclineRequest::
-	special OnlineInteract_Decline
+	callnative OnlineInteract_Decline
 	closemessage
 	releaseall
 	end
@@ -85,15 +85,15 @@ EventScript_OnlineInteractDisconnected::
 EventScript_OnlineInteractStart::
 	closemessage
 	goto_if_eq VAR_0x8004, ONLINE_INTERACT_TRADE, EventScript_OnlineStartTrade
-	special OnlineDuel_Start
+	callnative OnlineDuel_Start
 	waitstate
 	goto EventScript_OnlineActivityEnd
 
 EventScript_OnlineStartTrade::
-	special OnlineTrade_Start
+	callnative OnlineTrade_Start
 	waitstate
 EventScript_OnlineActivityEnd::
-	special Online_CheckLinkLost
+	callnative Online_CheckLinkLost
 	goto_if_eq VAR_RESULT, TRUE, EventScript_OnlineActivityLinkLost
 	releaseall
 	end

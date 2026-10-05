@@ -20,7 +20,6 @@
 #include "party_menu.h"
 #include "pokeball.h"
 #include "pokemon.h"
-#include "pokemon_summary_screen.h"
 #include "random.h"
 #include "recorded_battle.h"
 #include "reshow_battle_screen.h"
@@ -37,8 +36,8 @@
 #include "constants/songs.h"
 #include "constants/trainers.h"
 #include "constants/rgb.h"
-#include "multiplayer.h"
-#include "online_interact.h"
+#include "online_battle.h"
+#include "online_duel.h"
 
 static void PlayerBufferExecCompleted(u32 battler);
 static void PlayerHandleLoadMonSprite(u32 battler);
@@ -75,7 +74,6 @@ static void PlayerHandleLinkStandbyMsg(u32 battler);
 static void PlayerHandleResetActionMoveSelection(u32 battler);
 static void PlayerHandleEndLinkBattle(u32 battler);
 static void PlayerHandleBattleDebug(u32 battler);
-static void PlayerHandleOnlineLearnMove(u32 battler);
 
 static void PlayerBufferRunCommand(u32 battler);
 static void HandleInputChooseTarget(u32 battler);
@@ -156,7 +154,6 @@ static void (*const sPlayerBufferCommands[CONTROLLER_CMDS_COUNT])(u32 battler) =
     [CONTROLLER_RESETACTIONMOVESELECTION] = PlayerHandleResetActionMoveSelection,
     [CONTROLLER_ENDLINKBATTLE]            = PlayerHandleEndLinkBattle,
     [CONTROLLER_DEBUGMENU]                = PlayerHandleBattleDebug,
-    [CONTROLLER_ONLINELEARNMOVE]          = PlayerHandleOnlineLearnMove,
     [CONTROLLER_TERMINATOR_NOP]           = BtlController_TerminatorNop
 };
 
@@ -191,7 +188,9 @@ static void PlayerBufferRunCommand(u32 battler)
 {
     if (gBattleControllerExecFlags & gBitTable[battler])
     {
-        if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sPlayerBufferCommands))
+        if (gBattleResources->bufferA[battler][0] == CONTROLLER_ONLINELEARNMOVE)
+            OnlineBattle_PlayerHandleLearnMove(battler);
+        else if (gBattleResources->bufferA[battler][0] < ARRAY_COUNT(sPlayerBufferCommands))
             sPlayerBufferCommands[gBattleResources->bufferA[battler][0]](battler);
         else
             PlayerBufferExecCompleted(battler);
@@ -1138,32 +1137,10 @@ static void HandleMoveSwitching(u32 battler)
     }
 }
 
-// Battle resources can't be freed from inside a controller callback, since the
-// remaining battlers' controllers still run this frame.
-static void CB2_EndOnlineBattle(void)
-{
-    FreeAllWindowBuffers();
-    FreeBattleResources();
-    FreeBattleSpritesData();
-    FreeMonSpritesGfx();
-    SetMainCallback2(gMain.savedCallback);
-}
-
 static void SetLinkBattleEndCallbacks(u32 battler)
 {
-    // Online co-op battles are against an NPC trainer, so they end like a
-    // local trainer battle rather than showing the link battle results.
-    if (IsOnlineBattle())
-    {
-        if (gReceivedRemoteLinkPlayers == 0)
-        {
-            m4aSongNumStop(SE_LOW_HEALTH);
-            gMain.inBattle = FALSE;
-            gMain.callback1 = gPreBattleCallback1;
-            SetMainCallback2(CB2_EndOnlineBattle);
-        }
+    if (OnlineBattle_TrySetEndCallbacks())
         return;
-    }
 
     if (gWirelessCommType == 0)
     {
@@ -2246,114 +2223,6 @@ static void PlayerHandleEndLinkBattle(u32 battler)
     BeginFastPaletteFade(3);
     PlayerBufferExecCompleted(battler);
     gBattlerControllerFuncs[battler] = SetBattleEndCallbacks;
-}
-
-// Online battles: the host runs the battle, but asks this game's player about
-// moves their own Pokémon want to learn. The reply is the move slot to forget,
-// MAX_MON_MOVES for "don't learn", or TRUE/FALSE for "stop learning?".
-static EWRAM_DATA u8 sOnlineLearnMode = 0;
-static EWRAM_DATA u8 sOnlineLearnMonId = 0;
-static EWRAM_DATA u16 sOnlineLearnMove = MOVE_NONE;
-static EWRAM_DATA u8 sOnlineLearnCursor = 0;
-
-static void OnlineLearnMove_Reply(u32 battler, u16 value)
-{
-    BtlController_EmitOneReturnValue(battler, BUFFER_B, value);
-    PlayerBufferExecCompleted(battler);
-}
-
-static void OnlineLearnMove_WaitForBattleScreen(u32 battler)
-{
-    if (!gPaletteFade.active && gMain.callback2 == BattleMainCB2)
-        OnlineLearnMove_Reply(battler, GetMoveSlotToReplace());
-}
-
-// Like Cmd_yesnoboxlearnmove, wait for the battle screen twice after the
-// summary screen closes before reading the chosen slot
-static void OnlineLearnMove_WaitForSummaryScreen(u32 battler)
-{
-    if (!gPaletteFade.active && gMain.callback2 == BattleMainCB2)
-        gBattlerControllerFuncs[battler] = OnlineLearnMove_WaitForBattleScreen;
-}
-
-static void OnlineLearnMove_OpenSummaryScreen(u32 battler)
-{
-    if (!gPaletteFade.active)
-    {
-        FreeAllWindowBuffers();
-        // The Pokémon may sit in slots 3-5 of the battle party, past gPlayerPartyCount
-        ShowSelectMovePokemonSummaryScreen(gPlayerParty, sOnlineLearnMonId, PARTY_SIZE - 1, ReshowBattleScreenAfterMenu, sOnlineLearnMove);
-        gBattlerControllerFuncs[battler] = OnlineLearnMove_WaitForSummaryScreen;
-    }
-}
-
-static void OnlineLearnMove_HandleYesNo(u32 battler)
-{
-    bool32 chose = FALSE, yes = FALSE;
-
-    if (JOY_NEW(DPAD_UP) && sOnlineLearnCursor != 0)
-    {
-        PlaySE(SE_SELECT);
-        BattleDestroyYesNoCursorAt(sOnlineLearnCursor);
-        sOnlineLearnCursor = 0;
-        BattleCreateYesNoCursorAt(0);
-    }
-    if (JOY_NEW(DPAD_DOWN) && sOnlineLearnCursor == 0)
-    {
-        PlaySE(SE_SELECT);
-        BattleDestroyYesNoCursorAt(sOnlineLearnCursor);
-        sOnlineLearnCursor = 1;
-        BattleCreateYesNoCursorAt(1);
-    }
-    if (JOY_NEW(A_BUTTON))
-    {
-        PlaySE(SE_SELECT);
-        chose = TRUE;
-        yes = (sOnlineLearnCursor == 0);
-    }
-    else if (JOY_NEW(B_BUTTON))
-    {
-        PlaySE(SE_SELECT);
-        chose = TRUE;
-    }
-
-    if (!chose)
-        return;
-
-    HandleBattleWindow(YESNOBOX_X_Y, WINDOW_CLEAR);
-    if (sOnlineLearnMode == ONLINE_LEARN_MOVE_ASK_STOP)
-    {
-        OnlineLearnMove_Reply(battler, yes);
-    }
-    else if (yes)
-    {
-        BeginNormalPaletteFade(PALETTES_ALL, 0, 0, 16, RGB_BLACK);
-        gBattlerControllerFuncs[battler] = OnlineLearnMove_OpenSummaryScreen;
-    }
-    else
-    {
-        OnlineLearnMove_Reply(battler, MAX_MON_MOVES);
-    }
-}
-
-static void PlayerHandleOnlineLearnMove(u32 battler)
-{
-    sOnlineLearnMode = gBattleResources->bufferA[battler][1];
-    sOnlineLearnMonId = gBattleResources->bufferA[battler][2];
-    sOnlineLearnMove = gBattleResources->bufferA[battler][3] | (gBattleResources->bufferA[battler][4] << 8);
-
-    if (sOnlineLearnMode == ONLINE_LEARN_MOVE_PICK)
-    {
-        BeginNormalPaletteFade(PALETTES_ALL, 0, 0, 16, RGB_BLACK);
-        gBattlerControllerFuncs[battler] = OnlineLearnMove_OpenSummaryScreen;
-        return;
-    }
-
-    HandleBattleWindow(YESNOBOX_X_Y, 0);
-    BattlePutTextOnWindow(gText_BattleYesNoChoice, B_WIN_YESNO);
-    sOnlineLearnCursor = 0;
-    BattleCreateYesNoCursorAt(0);
-    gBattlerControllerFuncs[battler] = OnlineLearnMove_HandleYesNo;
 }
 
 static void Controller_WaitForDebug(u32 battler)

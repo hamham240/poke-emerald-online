@@ -1,5 +1,4 @@
 #include "global.h"
-#include "battle.h"
 #include "event_object_movement.h"
 #include "field_door.h"
 #include "field_effect.h"
@@ -16,7 +15,6 @@
 #include "constants/trainer_types.h"
 
 u8 gMultiplayerAvatarObjId;
-bool8 gDisableMonSelectCancel;
 
 // The partner's avatar is driven by two messages:
 //  - ONLINE_MSG_AVATAR_STATE: where the partner is and how they look. Sent when
@@ -45,10 +43,6 @@ static EWRAM_DATA struct OnlineAvatarState sPeerState = {0};
 static EWRAM_DATA bool8 sHasPeerState = FALSE;
 static EWRAM_DATA struct OnlineAvatarState sSentState = {0};
 static EWRAM_DATA u8 sStateResendTimer = 0;
-
-void InitMultiplayerData(void) {
-    gDisableMonSelectCancel = FALSE;
-}
 
 void InitMultiplayerAvatarIds(void)
 {
@@ -91,10 +85,6 @@ bool32 IsMultiplayerAvatarAt(s16 x, s16 y)
 
 // Online co-op battles are flagged as a link battle with an in-game partner,
 // a combination vanilla never uses.
-bool32 IsOnlineBattle(void) {
-    return (gBattleTypeFlags & (BATTLE_TYPE_LINK | BATTLE_TYPE_INGAME_PARTNER)) == (BATTLE_TYPE_LINK | BATTLE_TYPE_INGAME_PARTNER);
-}
-
 static u8 GetPeerFacingDirection(void)
 {
     if (sPeerState.facingDirection < DIR_SOUTH || sPeerState.facingDirection > DIR_EAST)
@@ -491,12 +481,4 @@ void Multiplayer_ReceiveAvatarEvent(void)
         PopAvatarEvent();
     sAvatarEvents[(sAvatarEventHead + sAvatarEventCount) % AVATAR_EVENT_QUEUE_SIZE] = event;
     sAvatarEventCount++;
-}
-
-void DisableMonSelectCancel(void) {
-    gDisableMonSelectCancel = TRUE;
-}
-
-void EnableMonSelectCancel(void) {
-    gDisableMonSelectCancel = FALSE;
 }

@@ -73,7 +73,7 @@
 #include "constants/party_menu.h"
 #include "constants/rgb.h"
 #include "constants/songs.h"
-#include "multiplayer.h"
+#include "online_battle.h"
 
 enum {
     MENU_SUMMARY,
@@ -1415,19 +1415,19 @@ static void HandleChooseMonCancel(u8 taskId, s8 *slotPtr)
         CancelParticipationPrompt(taskId);
         break;
     default:
-        if (gDisableMonSelectCancel == FALSE) {
-            PlaySE(SE_SELECT);
-            if (DisplayCancelChooseMonYesNo(taskId) != TRUE)
-            {
-                if (!MenuHelpers_IsLinkActive())
-                    gSpecialVar_0x8004 = PARTY_SIZE + 1;
-                gPartyMenuUseExitCallback = FALSE;
-                *slotPtr = PARTY_SIZE + 1;
-                Task_ClosePartyMenu(taskId);
-            }
-        }
-        else {
+        if (gDisableMonSelectCancel)
+        {
             PlaySE(SE_FAILURE);
+            break;
+        }
+        PlaySE(SE_SELECT);
+        if (DisplayCancelChooseMonYesNo(taskId) != TRUE)
+        {
+            if (!MenuHelpers_IsLinkActive())
+                gSpecialVar_0x8004 = PARTY_SIZE + 1;
+            gPartyMenuUseExitCallback = FALSE;
+            *slotPtr = PARTY_SIZE + 1;
+            Task_ClosePartyMenu(taskId);
         }
         break;
     }
@@ -1556,12 +1556,8 @@ static void UpdatePartySelectionSingleLayout(s8 *slotPtr, s8 movementDir)
     case MENU_DIR_UP:
         if (*slotPtr == 0)
         {
-            if (gDisableMonSelectCancel == FALSE) {
-                *slotPtr = PARTY_SIZE + 1;
-            }
-            else {
-                *slotPtr = PARTY_SIZE;
-            }
+            // Wrap to CONFIRM instead of CANCEL when cancelling isn't allowed
+            *slotPtr = gDisableMonSelectCancel ? PARTY_SIZE : PARTY_SIZE + 1;
         }
         else if (*slotPtr == PARTY_SIZE)
         {
@@ -1580,8 +1576,7 @@ static void UpdatePartySelectionSingleLayout(s8 *slotPtr, s8 movementDir)
         }
         break;
     case MENU_DIR_DOWN:
-        if ((*slotPtr == PARTY_SIZE + 1 && gDisableMonSelectCancel == FALSE) ||
-            (*slotPtr == PARTY_SIZE && gDisableMonSelectCancel == TRUE))
+        if (*slotPtr == (gDisableMonSelectCancel ? PARTY_SIZE : PARTY_SIZE + 1))
         {
             *slotPtr = 0;
         }

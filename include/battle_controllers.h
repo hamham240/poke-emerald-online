@@ -113,14 +113,6 @@ struct HpAndStatus
     u32 status;
 };
 
-// What CONTROLLER_ONLINELEARNMOVE asks the Pokémon's owner
-enum
-{
-    ONLINE_LEARN_MOVE_ASK,      // "Delete a move?" yes/no, then pick the move to forget
-    ONLINE_LEARN_MOVE_PICK,     // Straight to picking the move to forget
-    ONLINE_LEARN_MOVE_ASK_STOP, // "Stop learning?" yes/no
-};
-
 struct MovePpInfo
 {
     u16 moves[MAX_MON_MOVES];
@@ -201,7 +193,6 @@ enum
     CONTROLLER_RESETACTIONMOVESELECTION,
     CONTROLLER_ENDLINKBATTLE,
     CONTROLLER_DEBUGMENU,
-    CONTROLLER_ONLINELEARNMOVE,
     /*new controllers should go here*/
     CONTROLLER_TERMINATOR_NOP,
     CONTROLLER_CMDS_COUNT
@@ -264,7 +255,6 @@ void BtlController_EmitLinkStandbyMsg(u32 battler, u32 bufferId, u8 mode, bool32
 void BtlController_EmitResetActionMoveSelection(u32 battler, u32 bufferId, u8 caseId);
 void BtlController_EmitEndLinkBattle(u32 battler, u32 bufferId, u8 battleOutcome);
 void BtlController_EmitDebugMenu(u32 battler, u32 bufferId);
-void BtlController_EmitOnlineLearnMove(u32 battler, u32 bufferId, u8 mode, u8 monId, u16 move);
 
 void BattleControllerComplete(u32 battler); // Can be used for all the controllers.
 void BtlController_Empty(u32 battler); // Empty command, does nothing, only completes the execution.

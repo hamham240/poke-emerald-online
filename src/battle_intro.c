@@ -10,7 +10,7 @@
 #include "task.h"
 #include "trig.h"
 #include "constants/trainers.h"
-#include "multiplayer.h"
+#include "online_battle.h"
 
 static EWRAM_DATA u16 sBgCnt = 0;
 

@@ -114,51 +114,6 @@ EventScript_ShowTrainerIntroMsg::
 	goto_if_eq VAR_RESULT, TRUE, EventScript_TrainerApproach
 	goto EventScript_DoTrainerBattle
 
-EventScript_DoOnlineDoubleBattle::
-	@ Save the player's party so that we can restore it after the battle
-	special SavePlayerParty
-
-	@ Make the player choose MAX_PARTY/2 pokemons for battle
-	special DisableMonSelectCancel
-	special ChooseHalfPartyForBattle
-	waitstate
-
-	@ Reduce their party to these selected mons
-	special ReducePlayerPartyToSelectedMons
-
-	@ Set special variable to indicate online double battle
-	setvar VAR_0x8004, SPECIAL_BATTLE_ONLINE_DOUBLE
-
-	@ Call DoSpecialTrainerBattle() in battle_tower.c
-	special DoSpecialTrainerBattle
-	waitstate
-
-	@ The battle ended early if the partner disconnected; it didn't count
-	special Online_CheckLinkLost
-	goto_if_eq VAR_RESULT, TRUE, EventScript_OnlineBattleLinkLost
-
-	@ VAR_0x8006 is TRUE if the battle was won, with the prize in STR_VAR_1
-	call_if_eq VAR_0x8006, TRUE, EventScript_OnlineBattlePrizeMoney
-
-	@ End the battle
-	goto EventScript_EndTrainerBattle
-
-EventScript_OnlineBattlePrizeMoney::
-	message EventScript_Text_OnlineBattlePrizeMoney
-	waitmessage
-	waitbuttonpress
-	closemessage
-	return
-
-EventScript_OnlineBattleLinkLost::
-	msgbox EventScript_Text_OnlineDisconnected, MSGBOX_DEFAULT
-	closemessage
-	releaseall
-	end
-
-EventScript_Text_OnlineBattlePrizeMoney:
-	.string "{PLAYER} got ¥{STR_VAR_1}\nfor winning!$"
-
 EventScript_DoTrainerBattle::
 	dotrainerbattle
 	@ Below battle mode check only needed in FRLG
@@ -168,7 +123,6 @@ EventScript_DoTrainerBattle::
 	goto_if_eq VAR_RESULT, TRAINER_BATTLE_CONTINUE_SCRIPT_NO_MUSIC, EventScript_EndTrainerBattle
 	goto_if_eq VAR_RESULT, TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE, EventScript_EndTrainerBattle
 	goto_if_eq VAR_RESULT, TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE_NO_MUSIC, EventScript_EndTrainerBattle
-
 EventScript_EndTrainerBattle::
 	gotobeatenscript
 	releaseall

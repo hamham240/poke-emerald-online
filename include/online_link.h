@@ -49,17 +49,4 @@ u8 OnlineLink_PeekType(void);
 u16 OnlineLink_PeekSize(void);
 u16 OnlineLink_Receive(void *dest, u16 maxSize);
 
-// Pairing for online battles (implemented in link.c). Trainer ids are the
-// trainer each player is waiting at; TRAINER_NONE when there is none.
-void OnlinePair_Send(u8 type, u16 trainerId);
-u16 OnlinePair_GetPeerReady(void);
-u16 OnlinePair_GetPeerCommitted(void);
-void OnlinePair_ClearPeer(void);
-
-// Puts both players' info back in gLinkPlayers (implemented in link.c)
-void Online_RestoreLinkPlayers(void);
-
-// The picks a player brings to an online co-op battle (implemented in battle_tower.c)
-void OnlineBattle_ReceivePartnerParty(void);
-
 #endif // GUARD_ONLINE_LINK_H

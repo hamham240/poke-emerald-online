@@ -23,7 +23,7 @@
 #include "text.h"
 #include "constants/abilities.h"
 #include "constants/songs.h"
-#include "multiplayer.h"
+#include "online_battle.h"
 #include "online_link.h"
 
 static EWRAM_DATA u8 sLinkSendTaskId = 0;

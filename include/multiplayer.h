@@ -4,7 +4,6 @@
 #include "global.h"
 
 extern u8 gMultiplayerAvatarObjId;
-extern bool8 gDisableMonSelectCancel;
 
 struct ObjectEvent;
 
@@ -42,10 +41,8 @@ struct OnlineAvatarEvent {
 };
 
 void InitMultiplayerAvatarIds(void);
-void InitMultiplayerData(void);
 void ResetMultiplayerAvatarIds(void);
 void Multiplayer_OnLinkReset(void);
-bool32 IsOnlineBattle(void);
 bool32 IsMultiplayerAvatar(const struct ObjectEvent *objectEvent);
 bool32 IsMultiplayerAvatarAt(s16 x, s16 y);
 void UpdateMultiplayerAvatar(void);
@@ -55,7 +52,5 @@ void Multiplayer_SendPlayerInvisibility(bool8 invisible);
 void Multiplayer_SendDoorEvent(u8 kind, s16 x, s16 y);
 void Multiplayer_ReceiveAvatarState(void);
 void Multiplayer_ReceiveAvatarEvent(void);
-void DisableMonSelectCancel(void);
-void EnableMonSelectCancel(void);
 
 #endif

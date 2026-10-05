@@ -27,7 +27,7 @@
 #include "constants/battle_anim.h"
 #include "constants/songs.h"
 #include "constants/trainers.h"
-#include "multiplayer.h"
+#include "online_battle.h"
 #include "recorded_battle.h"
 
 static void LinkPartnerHandleLoadMonSprite(u32 battler);
@@ -37,7 +37,6 @@ static void LinkPartnerHandleTrainerSlideBack(u32 battler);
 static void LinkPartnerHandleMoveAnimation(u32 battler);
 static void LinkPartnerHandlePrintString(u32 battler);
 static void LinkPartnerHandleHealthBarUpdate(u32 battler);
-static void LinkPartnerHandleExpUpdate(u32 battler);
 static void LinkPartnerHandleIntroTrainerBallThrow(u32 battler);
 static void LinkPartnerHandleDrawPartyStatusSummary(u32 battler);
 static void LinkPartnerHandleBattleAnimation(u32 battler);
@@ -75,7 +74,7 @@ static void (*const sLinkPartnerBufferCommands[CONTROLLER_CMDS_COUNT])(u32 battl
     [CONTROLLER_CHOOSEPOKEMON]            = BtlController_Empty,
     [CONTROLLER_23]                       = BtlController_Empty,
     [CONTROLLER_HEALTHBARUPDATE]          = LinkPartnerHandleHealthBarUpdate,
-    [CONTROLLER_EXPUPDATE]                = LinkPartnerHandleExpUpdate,
+    [CONTROLLER_EXPUPDATE]                = OnlineBattle_LinkPartnerHandleExpUpdate,
     [CONTROLLER_STATUSICONUPDATE]         = BtlController_HandleStatusIconUpdate,
     [CONTROLLER_STATUSANIMATION]          = BtlController_HandleStatusAnimation,
     [CONTROLLER_STATUSXOR]                = BtlController_Empty,
@@ -107,7 +106,6 @@ static void (*const sLinkPartnerBufferCommands[CONTROLLER_CMDS_COUNT])(u32 battl
     [CONTROLLER_RESETACTIONMOVESELECTION] = BtlController_Empty,
     [CONTROLLER_ENDLINKBATTLE]            = LinkPartnerHandleEndLinkBattle,
     [CONTROLLER_DEBUGMENU]                = BtlController_Empty,
-    [CONTROLLER_ONLINELEARNMOVE]          = BtlController_Empty,
     [CONTROLLER_TERMINATOR_NOP]           = BtlController_TerminatorNop
 };
 
@@ -259,40 +257,6 @@ static void LinkPartnerHandlePrintString(u32 battler)
 static void LinkPartnerHandleHealthBarUpdate(u32 battler)
 {
     BtlController_HandleHealthBarUpdate(battler, FALSE);
-}
-
-// The partner's game animates the EXP bar and reports level-ups to the host.
-// This keeps our copy of their Pokémon in step by applying the same single
-// step their EXP task does, without replying.
-static void LinkPartnerHandleExpUpdate(u32 battler)
-{
-    u8 monId = gBattleResources->bufferA[battler][1];
-    u32 gainedExp = T1_READ_32(&gBattleResources->bufferA[battler][2]);
-    struct Pokemon *mon = &gPlayerParty[monId];
-    u8 level = GetMonData(mon, MON_DATA_LEVEL);
-
-    if (IsOnlineBattle() && level < MAX_LEVEL)
-    {
-        u16 species = GetMonData(mon, MON_DATA_SPECIES);
-        u32 currExp = GetMonData(mon, MON_DATA_EXP);
-        u32 nextLvlExp = gExperienceTables[gSpeciesInfo[species].growthRate][level + 1];
-
-        if (currExp + gainedExp >= nextLvlExp)
-        {
-            SetMonData(mon, MON_DATA_EXP, &nextLvlExp);
-            CalculateMonStats(mon);
-        }
-        else
-        {
-            currExp += gainedExp;
-            SetMonData(mon, MON_DATA_EXP, &currExp);
-        }
-
-        if (gBattlerPartyIndexes[battler] == monId)
-            UpdateHealthboxAttribute(gHealthboxSpriteIds[battler], mon, HEALTHBOX_ALL);
-    }
-
-    LinkPartnerBufferExecCompleted(battler);
 }
 
 static void LinkPartnerHandleIntroTrainerBallThrow(u32 battler)

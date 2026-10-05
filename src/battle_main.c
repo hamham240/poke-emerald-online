@@ -64,10 +64,8 @@
 #include "constants/songs.h"
 #include "constants/trainers.h"
 #include "cable_club.h"
-#include "multiplayer.h"
-#include "online_interact.h"
-#include "online_link.h"
-#include "overworld.h"
+#include "online_battle.h"
+#include "online_duel.h"
 
 extern struct Evolution gEvolutionTable[][EVOS_PER_MON];
 
@@ -867,40 +865,12 @@ static void FindLinkBattleMaster(u8 numPlayers, u8 multiPlayerId)
     }
 }
 
-// The online partner's game is gone, so nothing more will arrive from it and
-// the battle can't go on. Ends the battle without a result; the end callbacks
-// (HandleSpecialTrainerBattleEnd, CB2_EndOnlineDuel) undo it.
-static bool32 TryAbortDisconnectedOnlineBattle(void)
-{
-    if (!(IsOnlineBattle() || IsOnlineDuel()) || OnlineLink_IsConnected())
-        return FALSE;
-
-    DebugPrintf("Online battle: link lost, ending the battle");
-    m4aSongNumStop(SE_LOW_HEALTH);
-    SetHBlankCallback(NULL);
-    SetVBlankCallback(NULL);
-    ScanlineEffect_Stop();
-    ResetTasks();
-    FreeAllWindowBuffers();
-    FreeBattleResources();
-    FreeBattleSpritesData();
-    FreeMonSpritesGfx();
-
-    // Online battles are only started from the overworld
-    gMain.inBattle = FALSE;
-    SetMainCallback1(CB1_Overworld);
-    gBattleTypeFlags &= ~BATTLE_TYPE_LINK_IN_BATTLE;
-    Online_SetLinkLost();
-    SetMainCallback2(gMain.savedCallback);
-    return TRUE;
-}
-
 static void CB2_HandleStartBattle(void)
 {
     u8 playerMultiplayerId;
     u8 enemyMultiplayerId;
 
-    if (TryAbortDisconnectedOnlineBattle())
+    if (OnlineBattle_TryAbortDisconnected())
         return;
 
     RunTasks();
@@ -1110,7 +1080,7 @@ static void CB2_HandleStartMultiPartnerBattle(void)
     u8 playerMultiplayerId;
     u8 partnerMultiplayerId;
 
-    if (TryAbortDisconnectedOnlineBattle())
+    if (OnlineBattle_TryAbortDisconnected())
         return;
 
     RunTasks();
@@ -1149,10 +1119,7 @@ static void CB2_HandleStartMultiPartnerBattle(void)
                 gLinkPlayers[3].id = 3;
                 if (IsOnlineBattle())
                 {
-                    StringCopyN(gLinkPlayers[2].name, GetTrainerNameFromId(gTrainerBattleOpponent_A), PLAYER_NAME_LENGTH);
-                    gLinkPlayers[2].name[PLAYER_NAME_LENGTH] = EOS;
-                    StringCopy(gLinkPlayers[3].name, gLinkPlayers[2].name);
-                    gLinkPlayers[2].language = gLinkPlayers[3].language = GAME_LANGUAGE;
+                    OnlineBattle_SetOpponentLinkPlayers();
                 }
                 else
                 {
@@ -1825,7 +1792,7 @@ static void CB2_HandleStartMultiBattle(void)
 
 void BattleMainCB2(void)
 {
-    if (TryAbortDisconnectedOnlineBattle())
+    if (OnlineBattle_TryAbortDisconnected())
         return;
 
     AnimateSprites();
@@ -3050,9 +3017,6 @@ void BeginBattleIntro(void)
     gBattleMainFunc = DoBattleIntro;
 }
 
-// Debug aid for online battles: if the controller exec flags stop changing
-// for a while, log who the battle is waiting on. Function addresses can be
-// looked up in pokeemerald_modern.map.
 static void BattleMainCB1(void)
 {
     u32 battler;
