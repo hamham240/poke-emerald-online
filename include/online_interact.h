@@ -9,6 +9,8 @@ void OnlineInteract_OnDisconnect(void);
 bool32 OnlineInteract_TryStartIncomingRequestScript(void);
 bool32 IsOnlineDuel(void);
 bool32 IsOnlineTrade(void);
+void Online_SetLinkLost(void);
+bool32 Online_WasLinkLost(void);
 void OnlineTrade_End(void);
 
 // Specials
@@ -20,5 +22,6 @@ void OnlineInteract_Accept(void);
 void OnlineInteract_WaitForPartner(void);
 void OnlineDuel_Start(void);
 void OnlineTrade_Start(void);
+void Online_CheckLinkLost(void);
 
 #endif // GUARD_ONLINE_INTERACT_H

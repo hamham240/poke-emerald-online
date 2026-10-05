@@ -4249,9 +4249,6 @@ static void Cmd_getexp(void)
                     PREPARE_STRING_BUFFER(gBattleTextBuff2, i);
                     PREPARE_WORD_NUMBER_BUFFER(gBattleTextBuff3, 6, gBattleMoveDamage);
 
-                    if (IsOnlineBattle())
-                        DebugPrintf("Online EXP: mon=%u battler=%u exp=%u sentOut=%u", *expMonId, gBattleStruct->expGetterBattlerId, gBattleMoveDamage, wasSentOut);
-
                     if (wasSentOut || holdEffect == HOLD_EFFECT_EXP_SHARE)
                     {
                         PrepareStringBattle(STRINGID_PKMNGAINEDEXP, gBattleStruct->expGetterBattlerId);

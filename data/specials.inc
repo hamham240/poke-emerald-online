@@ -258,6 +258,7 @@ gSpecials::
 	def_special OnlineInteract_WaitForPartner
 	def_special OnlineDuel_Start
 	def_special OnlineTrade_Start
+	def_special Online_CheckLinkLost
 	def_special CallBattleArenaFunction
 	def_special CallBattleFactoryFunction
 	def_special CallBattlePikeFunction

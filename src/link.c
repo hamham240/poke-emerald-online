@@ -591,7 +591,6 @@ static void ProcessRecvCmds(u8 unused)
                 blockRecv->pos = 0;
                 blockRecv->size = gRecvCmds[i][1];
                 blockRecv->multiplayerId = gRecvCmds[i][2];
-                // DebugPrintf("LINKCMD_INIT_BLOCK: size=%u, multiplayerId=%u", blockRecv->size, blockRecv->multiplayerId);
                 break;
             }
             case LINKCMD_CONT_BLOCK:
@@ -614,7 +613,6 @@ static void ProcessRecvCmds(u8 unused)
                     for (j = 0; j < CMD_LENGTH - 1; j++)
                     {
                         gBlockRecvBuffer[i][(sBlockRecv[i].pos / 2) + j] = gRecvCmds[i][j + 1];
-                        // DebugPrintf("\tPlacing value %u in gBlockRecvBuffer[%u][%u] from player %u", gRecvCmds[i][j + 1], i, sBlockRecv[i].pos / 2, i);
                     }
                 }
 
@@ -649,7 +647,6 @@ static void ProcessRecvCmds(u8 unused)
                     }
                     else
                     {
-                        // DebugPrintf("Marking player %u as receiving a block.", i);
                         SetBlockReceivedFlag(i);
                     }
                 }
@@ -2661,7 +2658,6 @@ void Online_UpdateLink(void)
             // after each link battle. Any pairing or request they had is gone.
             OnlinePair_ClearPeer();
             OnlineInteract_OnLinkReset();
-            DebugPrintf("Online link: received link player %u", peerId);
             break;
         case ONLINE_MSG_BLOCK:
             // Keep blocks in order: wait until the previous one from this

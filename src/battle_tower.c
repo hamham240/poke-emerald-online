@@ -42,6 +42,7 @@
 #include "load_save.h"
 #include "multiplayer.h"
 #include "online_link.h"
+#include "online_interact.h"
 #include "party_menu.h"
 #include "evolution_scene.h"
 #include "item.h"
@@ -94,7 +95,6 @@ static u8 SetTentPtrsGetLevel(void);
 static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId);
 static void Task_BailOutOfOnlineBattle(u8 taskId);
 static void RestorePartyAfterOnlineBattle(void);
-static void LogOnlineParty(const char *label);
 
 // Where this player's chosen mons sit in gPlayerParty during an online battle,
 // and which party slots they came from.
@@ -2043,6 +2043,18 @@ void HandleSpecialTrainerBattleEnd(void)
         break;
     case SPECIAL_BATTLE_ONLINE_DOUBLE:
         EnableMonSelectCancel();
+        if (Online_WasLinkLost())
+        {
+            // The battle ended early: undo it, back to the party from before
+            // the picks. No result, so no flags, prize or whiteout.
+            LoadPlayerParty();
+            gSpecialVar_Result = FALSE;
+            gTrainerBattleOpponent_B = 0;
+            gSpecialVar_0x8006 = FALSE;
+            avoidReturnToFieldCB = TRUE;
+            SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+            break;
+        }
         RestorePartyAfterOnlineBattle();
         gSpecialVar_Result = FALSE;
 
@@ -2312,8 +2324,6 @@ static void StartOnlineBattle(u8 taskId)
     // first, then the joiner's
     sOnlinePartyOffset = GetMultiplayerId() == 0 ? 0 : MULTI_PARTY_SIZE;
     memcpy(sOnlineSelectedOrder, gSelectedOrderFromParty, sizeof(sOnlineSelectedOrder));
-    DebugPrintf("Online battle paired: picks=%u,%u,%u offset=%u", sOnlineSelectedOrder[0], sOnlineSelectedOrder[1], sOnlineSelectedOrder[2], sOnlinePartyOffset);
-    LogOnlineParty("paired");
 
     HideFieldMessageBox();
 
@@ -2338,7 +2348,7 @@ static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId)
     bool32 connected = OnlineLink_IsConnected() && gReceivedRemoteLinkPlayers;
 
     if (IsFieldMessageBoxHidden())
-        ShowFieldMessage(gText_AwaitingLinkup);
+        ShowFieldMessage(gText_WaitingForOnlinePartner);
 
     // Losing the connection undoes any commitment; start over once it's back
     if (!connected)
@@ -3404,18 +3414,6 @@ static void FillPartnerParty(u16 trainerId)
     }
 }
 
-static void LogOnlineParty(const char *label)
-{
-    u32 i;
-
-    DebugPrintf("Online party (%s): count=%u", label, gPlayerPartyCount);
-    for (i = 0; i < PARTY_SIZE; i++)
-        DebugPrintf("  slot %u: species=%u lv=%u hp=%u", i,
-                    GetMonData(&gPlayerParty[i], MON_DATA_SPECIES),
-                    GetMonData(&gPlayerParty[i], MON_DATA_LEVEL),
-                    GetMonData(&gPlayerParty[i], MON_DATA_HP));
-}
-
 // Each player gets the prize they'd get for beating this trainer alone. The
 // Amulet Coin counts if one of this player's own battlers held it.
 static u32 GiveOnlinePrizeMoney(void)
@@ -3479,7 +3477,6 @@ static void RestorePartyAfterOnlineBattle(void)
     struct Pokemon battleMons[MULTI_PARTY_SIZE];
     u32 i;
 
-    LogOnlineParty("battle end");
     for (i = 0; i < MULTI_PARTY_SIZE; i++)
         battleMons[i] = gPlayerParty[sOnlinePartyOffset + i];
 
@@ -3496,7 +3493,6 @@ static void RestorePartyAfterOnlineBattle(void)
             sOnlineLeveledUp |= 1u << slot;
         gPlayerParty[slot] = battleMons[i];
     }
-    LogOnlineParty("restored");
 }
 
 bool32 RubyBattleTowerRecordToEmerald(struct RSBattleTowerRecord *src, struct EmeraldBattleTowerRecord *dst)

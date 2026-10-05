@@ -322,6 +322,43 @@ static void CB2_SaveAndEndWirelessTrade(void);
 
 #include "data/trade.h"
 
+// The online partner's game is gone mid-trade: back to the field. inMenu says
+// whether the trade menu (rather than the trade animation and save) is up. A
+// trade whose save didn't finish stays in memory only, as when a cable is
+// pulled; the save is only valid once both games have written it.
+static bool32 TryAbortDisconnectedOnlineTrade(bool32 inMenu)
+{
+    if (!IsOnlineTrade() || OnlineLink_IsConnected())
+        return FALSE;
+
+    DebugPrintf("Online trade: link lost, leaving the trade");
+    SetHBlankCallback(NULL);
+    SetVBlankCallback(NULL);
+    ResetTasks();
+    if (inMenu)
+    {
+        FREE_AND_SET_NULL(sMenuTextTileBuffer);
+        FREE_AND_SET_NULL(sTradeMenu);
+        FreeAllWindowBuffers();
+    }
+    else if (sTradeAnim != NULL)
+    {
+        FreeAllWindowBuffers();
+        Free(GetBgTilemapBuffer(3));
+        Free(GetBgTilemapBuffer(1));
+        Free(GetBgTilemapBuffer(0));
+        FreeMonSpritesGfx();
+        FREE_AND_SET_NULL(sTradeAnim);
+    }
+
+    gSoftResetDisabled = FALSE;
+    SetMainCallback1(CB1_Overworld);
+    OnlineTrade_End();
+    Online_SetLinkLost();
+    SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+    return TRUE;
+}
+
 static bool8 SendLinkData(const void *linkData, u32 size)
 {
     if (gPlayerCurrActivity == ACTIVITY_29)
@@ -450,6 +487,10 @@ static void CB2_CreateTradeMenu(void)
     struct SpriteTemplate temp;
     u8 id;
     u32 xPos;
+
+    // State 0 allocates the menu
+    if (gMain.state != 0 && TryAbortDisconnectedOnlineTrade(TRUE))
+        return;
 
     switch (gMain.state)
     {
@@ -955,6 +996,9 @@ static void CB_StartLinkTrade(void)
 
 static void CB2_TradeMenu(void)
 {
+    if (TryAbortDisconnectedOnlineTrade(TRUE))
+        return;
+
     RunTradeMenuCallback();
     DoQueuedActions();
 
@@ -2899,6 +2943,9 @@ static void LoadTradeMonPic(u8 whichParty, u8 state)
 
 void CB2_LinkTrade(void)
 {
+    if (TryAbortDisconnectedOnlineTrade(FALSE))
+        return;
+
     switch (gMain.state)
     {
     case 0:
@@ -4699,6 +4746,9 @@ void CreateInGameTradePokemon(void)
 
 static void CB2_UpdateLinkTrade(void)
 {
+    if (TryAbortDisconnectedOnlineTrade(FALSE))
+        return;
+
     if (DoTradeAnim() == TRUE)
     {
         DestroySprite(&gSprites[sTradeAnim->monSpriteIds[TRADE_PLAYER]]);
@@ -4722,6 +4772,9 @@ static void CB2_UpdateLinkTrade(void)
 
 static void CB2_WaitTradeComplete(void)
 {
+    if (TryAbortDisconnectedOnlineTrade(FALSE))
+        return;
+
     u8 mpId = TradeGetMultiplayerId();
     if (IsWirelessTrade())
     {
@@ -4748,6 +4801,9 @@ static void CB2_WaitTradeComplete(void)
 
 static void CB2_SaveAndEndTrade(void)
 {
+    if (TryAbortDisconnectedOnlineTrade(FALSE))
+        return;
+
     switch (gMain.state)
     {
     case 0:

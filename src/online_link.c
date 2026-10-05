@@ -1,5 +1,4 @@
 #include "global.h"
-#include "link.h"
 #include "online_link.h"
 
 // Each message in a ring is a u16 length, then a u8 type, then the payload.
@@ -101,72 +100,4 @@ u16 OnlineLink_Receive(void *dest, u16 maxSize)
 
     sPipe->inRead = read + 2 + length;
     return size;
-}
-
-#if ONLINE_BLOCK_TEST
-struct TestBlock
-{
-    u32 magic;
-    u32 sequence;
-    u32 multiplayerId;
-};
-
-#define TEST_BLOCK_MAGIC  0x4B4C4254 // "TBLK"
-#define TEST_INTERVAL     120
-
-static u32 sTestFrames;
-static u32 sTestSequence;
-static bool8 sTestWaiting;
-
-static void PrintTestBlock(u32 who)
-{
-    struct TestBlock block;
-
-    memcpy(&block, gBlockRecvBuffer[who], sizeof(block));
-    if (block.magic != TEST_BLOCK_MAGIC)
-        DebugPrintf("  slot %u: unexpected contents (magic 0x%x)", who, block.magic);
-    else
-        DebugPrintf("  slot %u: from multiplayerId=%u seq=%u", who, block.multiplayerId, block.sequence);
-}
-#endif
-
-// Exercises the vanilla block API (SendBlock / GetBlockReceivedStatus /
-// ResetBlockReceivedFlags) over the online link, the same way the battle
-// start sequence uses it.
-void OnlineLink_RunBlockTest(void)
-{
-#if ONLINE_BLOCK_TEST
-    struct TestBlock block;
-
-    if (!OnlineLink_IsConnected() || !gReceivedRemoteLinkPlayers)
-        return;
-
-    if (sTestWaiting)
-    {
-        if ((GetBlockReceivedStatus() & 3) == 3)
-        {
-            DebugPrintf("BLOCK test: both blocks received for seq=%u", sTestSequence);
-            PrintTestBlock(0);
-            PrintTestBlock(1);
-            ResetBlockReceivedFlags();
-            sTestWaiting = FALSE;
-        }
-        return;
-    }
-
-    if (++sTestFrames < TEST_INTERVAL || !IsLinkTaskFinished())
-        return;
-
-    sTestFrames = 0;
-    block.magic = TEST_BLOCK_MAGIC;
-    block.sequence = ++sTestSequence;
-    block.multiplayerId = GetMultiplayerId();
-    if (SendBlock(BitmaskAllOtherLinkPlayers(), &block, sizeof(block)))
-    {
-        DebugPrintf("BLOCK test: sent seq=%u as multiplayerId=%u (players=%u, master=%u, peer trainerId=%u)",
-                    block.sequence, block.multiplayerId, GetLinkPlayerCount(), IsLinkMaster(),
-                    gLinkPlayers[block.multiplayerId ^ 1].trainerId & 0xFFFF);
-        sTestWaiting = TRUE;
-    }
-#endif
 }

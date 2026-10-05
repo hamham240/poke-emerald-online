@@ -11,8 +11,6 @@
 #define ONLINE_PIPE_INBOX       (ONLINE_PIPE_OUTBOX + ONLINE_PIPE_RING_SIZE)
 #define ONLINE_PIPE_MAGIC       0x4F42474D // "MGBO"
 
-#define ONLINE_BLOCK_TEST FALSE
-
 struct OnlinePipeHeader
 {
     vu8 connected;
@@ -49,7 +47,6 @@ bool32 OnlineLink_IsSendQueueEmpty(void);
 u8 OnlineLink_PeekType(void);
 u16 OnlineLink_PeekSize(void);
 u16 OnlineLink_Receive(void *dest, u16 maxSize);
-void OnlineLink_RunBlockTest(void);
 
 // Pairing for online battles (implemented in link.c). Trainer ids are the
 // trainer each player is waiting at; TRAINER_NONE when there is none.

@@ -67,7 +67,6 @@
 #include "constants/trainer_hill.h"
 #include "constants/weather.h"
 #include "multiplayer.h"
-#include "online_link.h"
 
 struct CableClubPlayer
 {
@@ -1495,7 +1494,6 @@ static void OverworldBasic(void)
 
     Multiplayer_SendAvatarState();
     UpdateMultiplayerAvatar();
-    OnlineLink_RunBlockTest();
 
     AnimateSprites();
     CameraUpdate();

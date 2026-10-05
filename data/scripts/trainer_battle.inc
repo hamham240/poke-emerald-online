@@ -126,18 +126,16 @@ EventScript_DoOnlineDoubleBattle::
 	@ Reduce their party to these selected mons
 	special ReducePlayerPartyToSelectedMons
 
-	@ TODO: figure out if this is necessary
-	frontier_set FRONTIER_DATA_SELECTED_MON_ORDER
-
 	@ Set special variable to indicate online double battle
 	setvar VAR_0x8004, SPECIAL_BATTLE_ONLINE_DOUBLE
-
-	@ Doesn't seem necessary but we'll keep it in
-	setvar VAR_0x8005, 0
 
 	@ Call DoSpecialTrainerBattle() in battle_tower.c
 	special DoSpecialTrainerBattle
 	waitstate
+
+	@ The battle ended early if the partner disconnected; it didn't count
+	special Online_CheckLinkLost
+	goto_if_eq VAR_RESULT, TRUE, EventScript_OnlineBattleLinkLost
 
 	@ VAR_0x8006 is TRUE if the battle was won, with the prize in STR_VAR_1
 	call_if_eq VAR_0x8006, TRUE, EventScript_OnlineBattlePrizeMoney
@@ -151,6 +149,12 @@ EventScript_OnlineBattlePrizeMoney::
 	waitbuttonpress
 	closemessage
 	return
+
+EventScript_OnlineBattleLinkLost::
+	msgbox EventScript_Text_OnlineDisconnected, MSGBOX_DEFAULT
+	closemessage
+	releaseall
+	end
 
 EventScript_Text_OnlineBattlePrizeMoney:
 	.string "{PLAYER} got ¥{STR_VAR_1}\nfor winning!$"

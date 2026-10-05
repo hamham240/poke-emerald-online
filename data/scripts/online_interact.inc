@@ -87,12 +87,20 @@ EventScript_OnlineInteractStart::
 	goto_if_eq VAR_0x8004, ONLINE_INTERACT_TRADE, EventScript_OnlineStartTrade
 	special OnlineDuel_Start
 	waitstate
-	releaseall
-	end
+	goto EventScript_OnlineActivityEnd
 
 EventScript_OnlineStartTrade::
 	special OnlineTrade_Start
 	waitstate
+EventScript_OnlineActivityEnd::
+	special Online_CheckLinkLost
+	goto_if_eq VAR_RESULT, TRUE, EventScript_OnlineActivityLinkLost
+	releaseall
+	end
+
+EventScript_OnlineActivityLinkLost::
+	msgbox EventScript_Text_OnlineDisconnected, MSGBOX_DEFAULT
+	closemessage
 	releaseall
 	end
 

@@ -66,6 +66,8 @@
 #include "cable_club.h"
 #include "multiplayer.h"
 #include "online_interact.h"
+#include "online_link.h"
+#include "overworld.h"
 
 extern struct Evolution gEvolutionTable[][EVOS_PER_MON];
 
@@ -865,10 +867,41 @@ static void FindLinkBattleMaster(u8 numPlayers, u8 multiPlayerId)
     }
 }
 
+// The online partner's game is gone, so nothing more will arrive from it and
+// the battle can't go on. Ends the battle without a result; the end callbacks
+// (HandleSpecialTrainerBattleEnd, CB2_EndOnlineDuel) undo it.
+static bool32 TryAbortDisconnectedOnlineBattle(void)
+{
+    if (!(IsOnlineBattle() || IsOnlineDuel()) || OnlineLink_IsConnected())
+        return FALSE;
+
+    DebugPrintf("Online battle: link lost, ending the battle");
+    m4aSongNumStop(SE_LOW_HEALTH);
+    SetHBlankCallback(NULL);
+    SetVBlankCallback(NULL);
+    ScanlineEffect_Stop();
+    ResetTasks();
+    FreeAllWindowBuffers();
+    FreeBattleResources();
+    FreeBattleSpritesData();
+    FreeMonSpritesGfx();
+
+    // Online battles are only started from the overworld
+    gMain.inBattle = FALSE;
+    SetMainCallback1(CB1_Overworld);
+    gBattleTypeFlags &= ~BATTLE_TYPE_LINK_IN_BATTLE;
+    Online_SetLinkLost();
+    SetMainCallback2(gMain.savedCallback);
+    return TRUE;
+}
+
 static void CB2_HandleStartBattle(void)
 {
     u8 playerMultiplayerId;
     u8 enemyMultiplayerId;
+
+    if (TryAbortDisconnectedOnlineBattle())
+        return;
 
     RunTasks();
     AnimateSprites();
@@ -1076,7 +1109,9 @@ static void CB2_HandleStartMultiPartnerBattle(void)
 {
     u8 playerMultiplayerId;
     u8 partnerMultiplayerId;
-    u8 prevState = gBattleCommunication[MULTIUSE_STATE];
+
+    if (TryAbortDisconnectedOnlineBattle())
+        return;
 
     RunTasks();
     AnimateSprites();
@@ -1336,9 +1371,6 @@ static void CB2_HandleStartMultiPartnerBattle(void)
         }
         break;
     }
-
-    if (IsOnlineBattle() && gBattleCommunication[MULTIUSE_STATE] != prevState)
-        DebugPrintf("Online battle start: state %u -> %u (master=%u)", prevState, gBattleCommunication[MULTIUSE_STATE], (gBattleTypeFlags & BATTLE_TYPE_IS_MASTER) != 0);
 }
 
 static void SetMultiPartnerMenuParty(u8 offset)
@@ -1793,6 +1825,9 @@ static void CB2_HandleStartMultiBattle(void)
 
 void BattleMainCB2(void)
 {
+    if (TryAbortDisconnectedOnlineBattle())
+        return;
+
     AnimateSprites();
     BuildOamBuffer();
     RunTextPrinters();
@@ -3018,27 +3053,6 @@ void BeginBattleIntro(void)
 // Debug aid for online battles: if the controller exec flags stop changing
 // for a while, log who the battle is waiting on. Function addresses can be
 // looked up in pokeemerald_modern.map.
-static void LogOnlineBattleStall(void)
-{
-    static u32 sLastFlags, sStallFrames;
-    u32 battler;
-
-    if (gBattleControllerExecFlags != sLastFlags || gBattleControllerExecFlags == 0)
-    {
-        sLastFlags = gBattleControllerExecFlags;
-        sStallFrames = 0;
-        return;
-    }
-
-    if (++sStallFrames % 300 != 0)
-        return;
-
-    DebugPrintf("Online battle waiting: execFlags=0x%x mainFunc=0x%x master=%u",
-                gBattleControllerExecFlags, (u32)gBattleMainFunc, (gBattleTypeFlags & BATTLE_TYPE_IS_MASTER) != 0);
-    for (battler = 0; battler < gBattlersCount; battler++)
-        DebugPrintf("  battler %u: controller=0x%x lastCmd=%u", battler, (u32)gBattlerControllerFuncs[battler], gBattleResources->bufferA[battler][0]);
-}
-
 static void BattleMainCB1(void)
 {
     u32 battler;
@@ -3046,9 +3060,6 @@ static void BattleMainCB1(void)
     gBattleMainFunc();
     for (battler = 0; battler < gBattlersCount; battler++)
         gBattlerControllerFuncs[battler](battler);
-
-    if (IsOnlineBattle())
-        LogOnlineBattleStall();
 }
 
 static void BattleStartClearSetData(void)

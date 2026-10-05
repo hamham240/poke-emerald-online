@@ -73,6 +73,7 @@ static EWRAM_DATA bool8 sIncomingCancelled = FALSE;
 static EWRAM_DATA bool8 sIncomingShown = FALSE;
 static EWRAM_DATA bool8 sIsOnlineDuel = FALSE;
 static EWRAM_DATA bool8 sIsOnlineTrade = FALSE;
+static EWRAM_DATA bool8 sLinkLost = FALSE;
 
 static void Send(u8 op, u8 kind)
 {
@@ -319,6 +320,30 @@ void OnlineInteract_Accept(void)
         Send(INTERACT_OP_ACCEPT, kind);
         sState = INTERACT_STATE_ACCEPTED;
     }
+}
+
+// Losing the link mid-activity
+//
+// A co-op battle, duel or trade can't go on once the partner's game is gone.
+// They end early and return to the field (see TryAbortDisconnectedOnlineBattle
+// and TryAbortDisconnectedOnlineTrade), noting it here for the script to tell
+// the player.
+
+void Online_SetLinkLost(void)
+{
+    sLinkLost = TRUE;
+}
+
+bool32 Online_WasLinkLost(void)
+{
+    return sLinkLost;
+}
+
+// VAR_RESULT = whether the last online activity ended because the link was lost
+void Online_CheckLinkLost(void)
+{
+    gSpecialVar_Result = sLinkLost;
+    sLinkLost = FALSE;
 }
 
 // Duels
