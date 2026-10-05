@@ -101,6 +101,11 @@ static void LogOnlineParty(const char *label);
 static EWRAM_DATA u8 sOnlinePartyOffset = 0;
 static EWRAM_DATA u8 sOnlineSelectedOrder[MULTI_PARTY_SIZE] = {0};
 
+// The partner's picks for the next online battle. They go into gPlayerParty's
+// partner slots before the battle, for the team preview that runs before the
+// battle start sequence swaps the parties.
+static EWRAM_DATA struct Pokemon sOnlinePartnerParty[MULTI_PARTY_SIZE] = {0};
+
 // After an online battle: party slots whose Pokémon leveled up, and the prize
 static EWRAM_DATA u8 sOnlineLeveledUp = 0;
 static EWRAM_DATA u32 sOnlinePrizeMoney = 0;
@@ -2288,9 +2293,20 @@ enum
 #define tPairState  data[1]
 #define tReadySent  data[2]
 
+// Called from Online_UpdateLink with an ONLINE_MSG_PARTNER_PARTY at the front
+// of the inbox
+void OnlineBattle_ReceivePartnerParty(void)
+{
+    OnlineLink_Receive(sOnlinePartnerParty, sizeof(sOnlinePartnerParty));
+}
+
 static void StartOnlineBattle(u8 taskId)
 {
     OnlinePair_ClearPeer();
+
+    // For the team preview. The partner sent their picks before committing, and
+    // messages arrive in order, so these are the ones for this battle.
+    memcpy(&gPlayerParty[MULTI_PARTY_SIZE], sOnlinePartnerParty, sizeof(sOnlinePartnerParty));
 
     // The battle start sequence swaps the parties, putting the host's mons
     // first, then the joiner's
@@ -2332,6 +2348,8 @@ static void Task_WaitForOnlineDoubleBattleConnection(u8 taskId)
     }
     else if (!task->tReadySent)
     {
+        // Our picks go ahead of READY, so they reach the partner before we can commit
+        OnlineLink_Send(ONLINE_MSG_PARTNER_PARTY, gPlayerParty, sizeof(struct Pokemon) * MULTI_PARTY_SIZE);
         OnlinePair_Send(ONLINE_MSG_PAIR_READY, trainerId);
         task->tReadySent = TRUE;
     }

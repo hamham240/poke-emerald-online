@@ -38,6 +38,7 @@
 #include "constants/trainers.h"
 #include "constants/rgb.h"
 #include "multiplayer.h"
+#include "online_interact.h"
 
 static void PlayerBufferExecCompleted(u32 battler);
 static void PlayerHandleLoadMonSprite(u32 battler);
@@ -1172,7 +1173,7 @@ static void SetLinkBattleEndCallbacks(u32 battler)
             gMain.inBattle = FALSE;
             gMain.callback1 = gPreBattleCallback1;
             SetMainCallback2(CB2_InitEndLinkBattle);
-            if (gBattleOutcome == B_OUTCOME_WON)
+            if (gBattleOutcome == B_OUTCOME_WON && !IsOnlineDuel())
                 TryPutLinkBattleTvShowOnAir();
             FreeAllWindowBuffers();
         }
@@ -1185,7 +1186,7 @@ static void SetLinkBattleEndCallbacks(u32 battler)
             gMain.inBattle = FALSE;
             gMain.callback1 = gPreBattleCallback1;
             SetMainCallback2(CB2_InitEndLinkBattle);
-            if (gBattleOutcome == B_OUTCOME_WON)
+            if (gBattleOutcome == B_OUTCOME_WON && !IsOnlineDuel())
                 TryPutLinkBattleTvShowOnAir();
             FreeAllWindowBuffers();
         }

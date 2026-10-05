@@ -250,6 +250,14 @@ gSpecials::
 	def_special DoSpecialTrainerBattle
 	def_special DisableMonSelectCancel
 	def_special EnableMonSelectCancel
+	def_special OnlineInteract_BufferPartnerName
+	def_special OnlineInteract_SendRequest
+	def_special OnlineInteract_BufferIncomingRequest
+	def_special OnlineInteract_Decline
+	def_special OnlineInteract_Accept
+	def_special OnlineInteract_WaitForPartner
+	def_special OnlineDuel_Start
+	def_special OnlineTrade_Start
 	def_special CallBattleArenaFunction
 	def_special CallBattleFactoryFunction
 	def_special CallBattlePikeFunction

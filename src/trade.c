@@ -21,6 +21,8 @@
 #include "main.h"
 #include "mystery_gift.h"
 #include "mystery_gift_menu.h"
+#include "online_interact.h"
+#include "online_link.h"
 #include "overworld.h"
 #include "palette.h"
 #include "party_menu.h"
@@ -470,7 +472,9 @@ static void CB2_CreateTradeMenu(void)
         PrintTradeMessage(MSG_STANDBY);
         ShowBg(0);
 
-        if (!gReceivedRemoteLinkPlayers)
+        // Online, the link is already up and only the partner's link player
+        // info, resent after the last close, can be missing
+        if (!gReceivedRemoteLinkPlayers && !OnlineLink_IsConnected())
         {
             gLinkType = LINKTYPE_TRADE_CONNECTING;
             sTradeMenu->timer = 0;
@@ -1043,11 +1047,59 @@ static void Trade_Memcpy(void *dest, const void *src, u32 size)
         _dest[i] = _src[i];
 }
 
+// Everything BufferTradeParties exchanges, as one online message
+struct OnlineTradeParty
+{
+    struct Pokemon party[PARTY_SIZE];
+    struct Mail mail[PARTY_SIZE];
+    u8 giftRibbons[GIFT_RIBBONS_COUNT];
+};
+
+// Online, the parties are swapped in one message each way. The block requests
+// the cable trade uses rely on both players running in step: the partner's
+// block can arrive before the menu is ready for it and be cleared.
+static void BufferTradePartiesOnline(void)
+{
+    struct OnlineTradeParty *data;
+
+    switch (sTradeMenu->bufferPartyState)
+    {
+    case 0:
+        data = AllocZeroed(sizeof(*data));
+        memcpy(data->party, gPlayerParty, sizeof(data->party));
+        memcpy(data->mail, gSaveBlock1Ptr->mail, sizeof(data->mail));
+        memcpy(data->giftRibbons, gSaveBlock1Ptr->giftRibbons, sizeof(data->giftRibbons));
+        if (OnlineLink_Send(ONLINE_MSG_TRADE_PARTY, data, sizeof(*data)))
+            sTradeMenu->bufferPartyState++;
+        Free(data);
+        break;
+    case 1:
+        // Left at the front of the inbox by Online_UpdateLink
+        if (OnlineLink_PeekType() == ONLINE_MSG_TRADE_PARTY)
+        {
+            data = AllocZeroed(sizeof(*data));
+            OnlineLink_Receive(data, sizeof(*data));
+            memcpy(gEnemyParty, data->party, sizeof(data->party));
+            memcpy(gTradeMail, data->mail, sizeof(data->mail));
+            memcpy(sTradeMenu->giftRibbons, data->giftRibbons, sizeof(sTradeMenu->giftRibbons));
+            Free(data);
+            sTradeMenu->bufferPartyState = 21; // Shared with the cable trade from here
+        }
+        break;
+    }
+}
+
 static bool8 BufferTradeParties(void)
 {
     u8 id = GetMultiplayerId();
     int i;
     struct Pokemon *mon;
+
+    if (OnlineLink_IsConnected() && sTradeMenu->bufferPartyState < 21)
+    {
+        BufferTradePartiesOnline();
+        return FALSE;
+    }
 
     switch (sTradeMenu->bufferPartyState)
     {
@@ -1765,7 +1817,19 @@ static void CB_ExitCanceledTrade(void)
             Free(sMenuTextTileBuffer);
             Free(sTradeMenu);
             FreeAllWindowBuffers();
-            SetMainCallback2(CB2_ReturnToFieldFromMultiplayer);
+            if (IsOnlineTrade())
+            {
+                // Back to where the player was standing, to finish the script
+                // that started the trade. The trade menu replaced the overworld's
+                // callback1, which handles the player's input.
+                SetMainCallback1(CB1_Overworld);
+                OnlineTrade_End();
+                SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+            }
+            else
+            {
+                SetMainCallback2(CB2_ReturnToFieldFromMultiplayer);
+            }
         }
     }
 }
@@ -2865,7 +2929,7 @@ void CB2_LinkTrade(void)
         sTradeAnim->alpha = 0;
         break;
     case 1:
-        if (!gReceivedRemoteLinkPlayers)
+        if (!gReceivedRemoteLinkPlayers && !OnlineLink_IsConnected())
         {
             sTradeAnim->isCableTrade = TRUE;
             OpenLink();
@@ -4720,7 +4784,17 @@ static void CB2_SaveAndEndTrade(void)
         if (gWirelessCommType)
             MysteryGift_TryIncrementStat(CARD_STAT_NUM_TRADES, gLinkPlayers[GetMultiplayerId() ^ 1].trainerId);
 
-        SetContinueGameWarpStatusToDynamicWarp();
+        // Continuing the save puts the player back where they traded. The cable
+        // trade goes to the dynamic warp, set on entering the Cable Club.
+        if (IsOnlineTrade())
+        {
+            SetContinueGameWarp(gSaveBlock1Ptr->location.mapGroup, gSaveBlock1Ptr->location.mapNum, WARP_ID_NONE, gSaveBlock1Ptr->pos.x, gSaveBlock1Ptr->pos.y);
+            SetContinueGameWarpStatus();
+        }
+        else
+        {
+            SetContinueGameWarpStatusToDynamicWarp();
+        }
         LinkFullSave_Init();
         gMain.state++;
         sTradeAnim->timer = 0;

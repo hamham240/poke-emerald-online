@@ -35,6 +35,8 @@
 #include "constants/map_types.h"
 #include "constants/songs.h"
 #include "constants/trainer_hill.h"
+#include "multiplayer.h"
+#include "online_interact.h"
 
 static EWRAM_DATA u8 sWildEncounterImmunitySteps = 0;
 static EWRAM_DATA u16 sPrevMetatileBehavior = 0;
@@ -159,6 +161,11 @@ int ProcessPlayerFieldInput(struct FieldInput *input)
     if (TryRunOnFrameMapScript() == TRUE)
         return TRUE;
 
+    // The online partner asked to battle or trade
+    if ((gPlayerAvatar.tileTransitionState == T_NOT_MOVING || gPlayerAvatar.tileTransitionState == T_TILE_CENTER)
+     && OnlineInteract_TryStartIncomingRequestScript() == TRUE)
+        return TRUE;
+
     if (input->pressedBButton && TrySetupDiveEmergeScript() == TRUE)
         return TRUE;
     if (input->tookStep)
@@ -258,7 +265,13 @@ static bool8 TryStartInteractionScript(struct MapPosition *position, u16 metatil
 
 static const u8 *GetInteractionScript(struct MapPosition *position, u8 metatileBehavior, u8 direction)
 {
-    const u8 *script = GetInteractedObjectEventScript(position, metatileBehavior, direction);
+    const u8 *script;
+
+    // The online partner's avatar is skipped by the object event lookup
+    if (IsMultiplayerAvatarAt(position->x, position->y))
+        return EventScript_OnlinePlayerInteract;
+
+    script = GetInteractedObjectEventScript(position, metatileBehavior, direction);
     if (script != NULL)
         return script;
 

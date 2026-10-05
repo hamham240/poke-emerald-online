@@ -95,6 +95,19 @@ bool32 IsMultiplayerAvatar(const struct ObjectEvent *objectEvent)
         && objectEvent == &gObjectEvents[gMultiplayerAvatarObjId];
 }
 
+// Whether the partner's avatar is standing at (x, y), for talking to it
+bool32 IsMultiplayerAvatarAt(s16 x, s16 y)
+{
+    struct ObjectEvent *objEvent;
+
+    if (gMultiplayerAvatarObjId == OBJECT_EVENTS_COUNT)
+        return FALSE;
+
+    objEvent = &gObjectEvents[gMultiplayerAvatarObjId];
+    return objEvent->active && !objEvent->invisible
+        && objEvent->currentCoords.x == x && objEvent->currentCoords.y == y;
+}
+
 // Online co-op battles are flagged as a link battle with an in-game partner,
 // a combination vanilla never uses.
 bool32 IsOnlineBattle(void) {

@@ -2291,7 +2291,10 @@ void Controller_WaitForHealthBar(u32 battler)
     SetHealthboxSpriteVisible(gHealthboxSpriteIds[battler]);
     if (hpValue != -1)
     {
-        UpdateHpTextInHealthbox(gHealthboxSpriteIds[battler], HP_CURRENT, hpValue, gBattleMons[battler].maxHP);
+        // gBattleMons is only filled in by the link master, so read the party
+        struct Pokemon *mon = &GetBattlerParty(battler)[gBattlerPartyIndexes[battler]];
+
+        UpdateHpTextInHealthbox(gHealthboxSpriteIds[battler], HP_CURRENT, hpValue, GetMonData(mon, MON_DATA_MAX_HP));
     }
     else
     {

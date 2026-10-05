@@ -65,6 +65,7 @@
 #include "constants/trainers.h"
 #include "cable_club.h"
 #include "multiplayer.h"
+#include "online_interact.h"
 
 extern struct Evolution gEvolutionTable[][EVOS_PER_MON];
 
@@ -2301,7 +2302,8 @@ static void EndLinkBattleInSteps(void)
 
             for (i = 0; i < battlerCount && (gLinkPlayers[i].version & 0xFF) == VERSION_EMERALD; i++);
 
-            if (!gSaveBlock2Ptr->frontier.disableRecordBattle && i == battlerCount)
+            // Online duels leave no trace, so they aren't offered for recording
+            if (!gSaveBlock2Ptr->frontier.disableRecordBattle && i == battlerCount && !IsOnlineDuel())
             {
                 if (FlagGet(FLAG_SYS_FRONTIER_PASS))
                 {

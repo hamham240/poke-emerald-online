@@ -30,6 +30,7 @@
 #include "constants/trainers.h"
 #include "multiplayer.h"
 #include "online_link.h"
+#include "online_interact.h"
 
 #define ONLINE_LINK_PLAYER_COUNT 2
 
@@ -386,6 +387,10 @@ void OpenLink(void)
 {
     int i;
 
+    // The online link stays up; there's no cable to (re)open
+    if (OnlineLink_IsConnected())
+        return;
+
     if (!gWirelessCommType)
     {
         ResetSerial();
@@ -417,6 +422,9 @@ void OpenLink(void)
 
 void CloseLink(void)
 {
+    if (OnlineLink_IsConnected())
+        return;
+
     gReceivedRemoteLinkPlayers = FALSE;
     if (gWirelessCommType)
         LinkRfu_Shutdown();
@@ -919,6 +927,11 @@ bool8 IsLinkPlayerDataExchangeComplete(void)
     u8 i;
     u8 count;
     bool8 retval;
+
+    // Online players run the same game, and gLinkType can differ between them
+    // at the moment their link player info was sent
+    if (OnlineLink_IsConnected())
+        return gReceivedRemoteLinkPlayers;
 
     count = 0;
     for (i = 0; i < GetLinkPlayerCount(); i++)
@@ -1423,6 +1436,11 @@ static u8 GetDummy2(void)
 
 void SetCloseLinkCallbackAndType(u16 type)
 {
+    if (OnlineLink_IsConnected())
+    {
+        Online_ReadyCloseLink();
+        return;
+    }
     if (gWirelessCommType == TRUE)
     {
         Rfu_SetCloseLinkCallback();
@@ -2593,6 +2611,7 @@ static void Online_Reset(void)
     gReceivedRemoteLinkPlayers = FALSE;
     OnlinePair_ClearPeer();
     Multiplayer_OnLinkReset();
+    OnlineInteract_OnDisconnect();
 }
 
 // Called once per frame from the main loop, in place of HandleLinkConnection.
@@ -2639,8 +2658,9 @@ void Online_UpdateLink(void)
             gLinkPlayers[peerId].id = peerId;
             gReceivedRemoteLinkPlayers = TRUE;
             // Sent when the partner (re)connects, e.g. after a soft reset, and
-            // after each link battle. Any pairing they had is gone.
+            // after each link battle. Any pairing or request they had is gone.
             OnlinePair_ClearPeer();
+            OnlineInteract_OnLinkReset();
             DebugPrintf("Online link: received link player %u", peerId);
             break;
         case ONLINE_MSG_BLOCK:
@@ -2669,6 +2689,19 @@ void Online_UpdateLink(void)
             break;
         case ONLINE_MSG_AVATAR_EVENT:
             Multiplayer_ReceiveAvatarEvent();
+            break;
+        case ONLINE_MSG_INTERACT:
+            OnlineInteract_Receive();
+            break;
+        case ONLINE_MSG_PARTNER_PARTY:
+            OnlineBattle_ReceivePartnerParty();
+            break;
+        case ONLINE_MSG_TRADE_PARTY:
+            // Read by the trade menu once it's ready for it. Everything after
+            // it waits too, but the partner sends nothing else meanwhile.
+            if (IsOnlineTrade())
+                goto done;
+            OnlineLink_Receive(NULL, 0);
             break;
         case ONLINE_MSG_CLOSE_LINK:
             OnlineLink_Receive(NULL, 0);

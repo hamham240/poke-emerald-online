@@ -37,6 +37,9 @@ enum
     ONLINE_MSG_PAIR_CANCEL,
     ONLINE_MSG_AVATAR_STATE,
     ONLINE_MSG_AVATAR_EVENT,
+    ONLINE_MSG_INTERACT,
+    ONLINE_MSG_PARTNER_PARTY,
+    ONLINE_MSG_TRADE_PARTY,
 };
 
 bool32 OnlineLink_IsConnected(void);
@@ -54,5 +57,8 @@ void OnlinePair_Send(u8 type, u16 trainerId);
 u16 OnlinePair_GetPeerReady(void);
 u16 OnlinePair_GetPeerCommitted(void);
 void OnlinePair_ClearPeer(void);
+
+// The picks a player brings to an online co-op battle (implemented in battle_tower.c)
+void OnlineBattle_ReceivePartnerParty(void);
 
 #endif // GUARD_ONLINE_LINK_H

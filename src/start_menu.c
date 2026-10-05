@@ -44,6 +44,7 @@
 #include "trainer_card.h"
 #include "window.h"
 #include "union_room.h"
+#include "online_link.h"
 #include "constants/battle_frontier.h"
 #include "constants/rgb.h"
 #include "constants/songs.h"
@@ -65,7 +66,11 @@ enum
     MENU_ACTION_RETIRE_FRONTIER,
     MENU_ACTION_PYRAMID_BAG,
     MENU_ACTION_DEBUG,
+    MENU_ACTION_ONLINE,
 };
+
+// The start menu window fits this many entries
+#define MAX_START_MENU_ACTIONS 8
 
 // Save status
 enum
@@ -106,6 +111,7 @@ static bool8 StartMenuLinkModePlayerNameCallback(void);
 static bool8 StartMenuBattlePyramidRetireCallback(void);
 static bool8 StartMenuBattlePyramidBagCallback(void);
 static bool8 StartMenuDebugCallback(void);
+static bool8 StartMenuOnlineCallback(void);
 
 // Menu callbacks
 static bool8 SaveStartCallback(void);
@@ -183,6 +189,10 @@ static const struct WindowTemplate sWindowTemplate_PyramidPeak = {
 };
 
 static const u8 gText_MenuDebug[] = _("DEBUG");
+// "MULTIPLAYER" is too wide for the start menu window
+static const u8 sText_MenuOnline[] = _("ONLINE");
+static const u8 sText_OnlinePlayers[] = _("PLAYERS ONLINE");
+static const u8 sText_WaitingForPlayers[] = _("Waiting for players…");
 
 static const struct MenuAction sStartMenuItems[] =
 {
@@ -200,6 +210,7 @@ static const struct MenuAction sStartMenuItems[] =
     [MENU_ACTION_RETIRE_FRONTIER] = {gText_MenuRetire,  {.u8_void = StartMenuBattlePyramidRetireCallback}},
     [MENU_ACTION_PYRAMID_BAG]     = {gText_MenuBag,     {.u8_void = StartMenuBattlePyramidBagCallback}},
     [MENU_ACTION_DEBUG]           = {gText_MenuDebug,   {.u8_void = StartMenuDebugCallback}},
+    [MENU_ACTION_ONLINE]          = {sText_MenuOnline,  {.u8_void = StartMenuOnlineCallback}},
 };
 
 static const struct BgTemplate sBgTemplates_LinkBattleSave[] =
@@ -317,6 +328,9 @@ static void BuildStartMenuActions(void)
         BuildNormalStartMenu();
     #endif
     }
+
+    if (sStartMenuCursorPos >= sNumStartMenuActions)
+        sStartMenuCursorPos = 0;
 }
 
 static void AddStartMenuAction(u8 action)
@@ -343,9 +357,14 @@ static void BuildNormalStartMenu(void)
     }
 
     AddStartMenuAction(MENU_ACTION_PLAYER);
+    if (OnlineLink_IsConnected())
+        AddStartMenuAction(MENU_ACTION_ONLINE);
     AddStartMenuAction(MENU_ACTION_SAVE);
     AddStartMenuAction(MENU_ACTION_OPTION);
-    AddStartMenuAction(MENU_ACTION_EXIT);
+
+    // A full menu has no room for EXIT; B and START close it anyway
+    if (sNumStartMenuActions < MAX_START_MENU_ACTIONS)
+        AddStartMenuAction(MENU_ACTION_EXIT);
 }
 
 static void BuildDebugStartMenu(void)
@@ -361,6 +380,8 @@ static void BuildDebugStartMenu(void)
     AddStartMenuAction(MENU_ACTION_PLAYER);
     AddStartMenuAction(MENU_ACTION_SAVE);
     AddStartMenuAction(MENU_ACTION_OPTION);
+    if (OnlineLink_IsConnected() && sNumStartMenuActions < MAX_START_MENU_ACTIONS)
+        AddStartMenuAction(MENU_ACTION_ONLINE);
 }
 
 static void BuildSafariZoneStartMenu(void)
@@ -645,6 +666,7 @@ static bool8 HandleStartMenuInput(void)
         if (gMenuCallback != StartMenuSaveCallback
             && gMenuCallback != StartMenuExitCallback
             && gMenuCallback != StartMenuDebugCallback
+            && gMenuCallback != StartMenuOnlineCallback
             && gMenuCallback != StartMenuSafariZoneRetireCallback
             && gMenuCallback != StartMenuBattlePyramidRetireCallback)
         {
@@ -792,6 +814,91 @@ static bool8 StartMenuDebugCallback(void)
 
 return TRUE;
 }
+
+#define tWindowId data[0]
+
+// Lists the other players connected online. Room for more than the one
+// partner there is today.
+static u8 ShowOnlinePlayersWindow(void)
+{
+    struct WindowTemplate template = {
+        .bg = 0,
+        .tilemapLeft = 1,
+        .tilemapTop = 1,
+        .width = 16,
+        .height = 4,
+        .paletteNum = 15,
+        .baseBlock = 0x8,
+    };
+    u8 windowId;
+    u32 i, y;
+    u32 numPlayers = 0;
+
+    if (gReceivedRemoteLinkPlayers)
+    {
+        for (i = 0; i < GetLinkPlayerCount(); i++)
+        {
+            if (i != GetMultiplayerId())
+                numPlayers++;
+        }
+    }
+    template.height = 2 * (1 + max(numPlayers, 1));
+
+    windowId = AddWindow(&template);
+    DrawStdWindowFrame(windowId, FALSE);
+    FillWindowPixelBuffer(windowId, PIXEL_FILL(1));
+    AddTextPrinterParameterized(windowId, FONT_NORMAL, sText_OnlinePlayers, 0, 1, TEXT_SKIP_DRAW, NULL);
+
+    y = 17;
+    if (numPlayers == 0)
+    {
+        AddTextPrinterParameterized(windowId, FONT_NORMAL, sText_WaitingForPlayers, 8, y, TEXT_SKIP_DRAW, NULL);
+    }
+    else
+    {
+        for (i = 0; i < GetLinkPlayerCount(); i++)
+        {
+            if (i == GetMultiplayerId())
+                continue;
+            StringCopyN(gStringVar1, gLinkPlayers[i].name, PLAYER_NAME_LENGTH);
+            gStringVar1[PLAYER_NAME_LENGTH] = EOS;
+            AddTextPrinterParameterized(windowId, FONT_NORMAL, gStringVar1, 8, y, TEXT_SKIP_DRAW, NULL);
+            y += 16;
+        }
+    }
+
+    CopyWindowToVram(windowId, COPYWIN_FULL);
+    return windowId;
+}
+
+static void Task_OnlinePlayers(u8 taskId)
+{
+    if (JOY_NEW(A_BUTTON | B_BUTTON))
+    {
+        PlaySE(SE_SELECT);
+        ClearStdWindowAndFrameToTransparent(gTasks[taskId].tWindowId, TRUE);
+        RemoveWindow(gTasks[taskId].tWindowId);
+        // Back to the start menu; the player is still frozen from it
+        CreateStartMenuTask(Task_ShowStartMenu);
+        DestroyTask(taskId);
+    }
+}
+
+static bool8 StartMenuOnlineCallback(void)
+{
+    u8 taskId;
+
+    RemoveExtraStartMenuWindows();
+    ClearStdWindowAndFrame(GetStartMenuWindowId(), TRUE);
+    RemoveStartMenuWindow();
+
+    taskId = CreateTask(Task_OnlinePlayers, 0x50);
+    gTasks[taskId].tWindowId = ShowOnlinePlayersWindow();
+
+    return TRUE;
+}
+
+#undef tWindowId
 
 static bool8 StartMenuSafariZoneRetireCallback(void)
 {

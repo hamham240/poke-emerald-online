@@ -47,6 +47,7 @@ void ResetMultiplayerAvatarIds(void);
 void Multiplayer_OnLinkReset(void);
 bool32 IsOnlineBattle(void);
 bool32 IsMultiplayerAvatar(const struct ObjectEvent *objectEvent);
+bool32 IsMultiplayerAvatarAt(s16 x, s16 y);
 void UpdateMultiplayerAvatar(void);
 void Multiplayer_SendAvatarState(void);
 void Multiplayer_SendPlayerMovement(const struct ObjectEvent *player, u8 movementActionId);

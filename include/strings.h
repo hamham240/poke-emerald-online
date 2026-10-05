@@ -3041,5 +3041,7 @@ extern const u8 gText_ExpShareOff[];
 // Multiplayer 
 extern const u8 gText_MultiplayerSingleBattle[];
 extern const u8 gText_MultiplayerDoubleBattle[];
+extern const u8 gText_OnlineInteractBattle[];
+extern const u8 gText_OnlineInteractTrade[];
 
 #endif // GUARD_STRINGS_H

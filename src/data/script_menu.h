@@ -778,6 +778,13 @@ static const struct MenuAction MultichoiceList_MultiplayerBattle[] =
     {gText_MultiplayerSingleBattle},
 };
 
+static const struct MenuAction MultichoiceList_OnlineInteract[] =
+{
+    {gText_OnlineInteractBattle},
+    {gText_OnlineInteractTrade},
+    {gText_Cancel},
+};
+
 static const struct MenuAction MultichoiceList_Exit[] =
 {
     {gText_Exit},
@@ -906,6 +913,7 @@ static const struct MultichoiceListStruct sMultichoiceLists[] =
     [MULTI_FALLARBOR_TENT_RULES]       = MULTICHOICE(MultichoiceList_FallarborTentRules),
     [MULTI_TAG_MATCH_TYPE]             = MULTICHOICE(MultichoiceList_TagMatchType),
     [MULTI_MULTIPLAYER_BATTLE_CHOICE]  = MULTICHOICE(MultichoiceList_MultiplayerBattle),
+    [MULTI_ONLINE_INTERACT]            = MULTICHOICE(MultichoiceList_OnlineInteract),
 };
 
 const u8 *const gStdStrings[] =

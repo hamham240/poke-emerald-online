@@ -1837,3 +1837,5 @@ const u8 gText_ExpShareOff[] = _("The Exp. Share has been turned off.{PAUSE_UNTI
 // Multiplayer
 const u8 gText_MultiplayerSingleBattle[] = _("Single Battle");
 const u8 gText_MultiplayerDoubleBattle[] = _("Online Double Battle");
+const u8 gText_OnlineInteractBattle[] = _("BATTLE");
+const u8 gText_OnlineInteractTrade[] = _("TRADE");
